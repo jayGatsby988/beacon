@@ -1,0 +1,44 @@
+{
+  "date": "2026-10-18",
+  "change": "Bolder dark layout, direct SOS, concise errors, map and chat performance fixes",
+  "automated": {
+    "tests": 197,
+    "passed": 196,
+    "failed": 0,
+    "skipped": 1,
+    "skipReason": "PostgreSQL integration needs configured database",
+    "typecheck": "passed",
+    "lint": "passed",
+    "swiftFraming": "passed: 28 round trips plus malformed frames, ordering, duplicates, expiry and limits"
+  },
+  "simulator": {
+    "model": "iPhone 17 Pro",
+    "os": "iOS 26.0.1",
+    "verified": [
+      "Home has one SOS action and no optional-details form",
+      "SOS creates local request with truthful waiting status",
+      "Request map renders offline bundled UW geometry",
+      "Completing request persists a completed state and exposes pending propagation",
+      "Returning to Help exposes the next SOS action",
+      "Nearby Map opens directly and renders bundled geometry with own location",
+      "Accessibility text setting checked and restored; tab controls remain reachable"
+    ]
+  },
+  "devices": [
+    {
+      "name": "Vaibhav\u2019s iPhone",
+      "install": "success",
+      "launch": "success"
+    },
+    {
+      "name": "Pravanram\u2019s iPhone",
+      "install": "success",
+      "launch": "success"
+    }
+  ],
+  "limitations": [
+    "No new physical two-phone Bluetooth delivery or audible call test performed in this update",
+    "Offline street geometry remains limited to bundled UW coverage or areas saved on the device",
+    "Native source and storage schema unchanged; existing compatible native binary repackaged with updated production JavaScript/assets"
+  ]
+}

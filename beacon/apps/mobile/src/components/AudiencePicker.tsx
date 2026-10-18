@@ -57,7 +57,7 @@ const s = StyleSheet.create({
   trigger: { minHeight: 48, maxWidth: "100%", flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: c.border, borderRadius: 24, backgroundColor: c.card, paddingHorizontal: 14, paddingVertical: 10, alignSelf: "flex-start" },
   triggerText: { fontFamily: fonts.medium, color: c.text, fontSize: 13, lineHeight: 19, flexShrink: 1 },
   compact: { minHeight: 44, borderWidth: 0, backgroundColor: "transparent", paddingHorizontal: 0, paddingVertical: 5, gap: 6 },
-  compactText: { fontFamily: fonts.body, fontSize: 13, color: c.secondary },
+  compactText: { fontFamily: fonts.medium, fontSize: 15, lineHeight: 22, color: c.secondary },
   overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.65)" },
   sheet: { width: "100%", maxWidth: 640, maxHeight: "85%", alignSelf: "center", padding: 20, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderColor: c.border, backgroundColor: c.card, gap: 14 },
   headingRow: { flexDirection: "row", alignItems: "center", gap: 12 },

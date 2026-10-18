@@ -220,22 +220,29 @@ test("an existing own SOS keeps incoming requests accessible and suppresses a du
   assert.equal(ui.hasAction("Send SOS now"), true);
 });
 
-test("Help sends only after an explicit SOS action and navigates to the service-created request", async () => {
+test("Help sends in one tap without a details step and waits for the saved request before navigating", async () => {
   const b = state([request("incoming", null)]);
   const sent: unknown[] = [];
+  let finishSave!: (id: string) => void;
+  const saved = new Promise<string>((resolve) => { finishSave = resolve; });
   b.sendSOS = async (input) => {
     sent.push(input);
-    return "created-by-service";
+    return saved;
   };
   const ui = helpScreen(() => b);
-  ui.render();
+  const html = ui.render();
+  assert.doesNotMatch(html, /Add details|Optional details|Continue to SOS/);
+  assert.equal(ui.hasAction("Add details"), false);
   assert.deepEqual(
     sent,
     [],
     "rendering incoming help must never create an outgoing request",
   );
-  await ui.press("Send SOS now");
+  const sending = ui.press("Send SOS now");
   assert.deepEqual(JSON.parse(JSON.stringify(sent)), [{ category: "other" }]);
+  assert.deepEqual(ui.routes, [], "do not show a request before it is saved");
+  finishSave("created-by-service");
+  await sending;
   assert.deepEqual(ui.routes, ["/request/created-by-service"]);
 });
 
@@ -305,6 +312,61 @@ test("request details never expose accept actions for another requester or a clo
     r.status = status;
     ui.render();
     assert.equal(ui.hasAction("Accept Alex"), false);
+  }
+});
+
+test("an incoming request opens the named requester chat only in the matching audience", async () => {
+  const r = request("incoming", "group-a", { name: "Maya" });
+  const b = state([r]);
+  b.activeGroupId = "group-a";
+  const maya: PersonView = { nodeId: r.originNodeId, name: "Maya", publicKey: "maya-key", scope: "group-a", connected: false, lastSeenAt: 100, unreadCount: 0 };
+  b.people = [maya];
+  const ui = helpScreen(() => b, r.id);
+  ui.render();
+  assert.deepEqual(ui.routes, [], "rendering must not open a conversation");
+  await ui.press("Message Maya");
+  assert.deepEqual(ui.routes, [`/chat/${r.originNodeId}`]);
+
+  b.people = [{ ...maya, scope: "group-b" }];
+  ui.render();
+  assert.equal(ui.hasAction("Message Maya"), false, "a person from another audience is not a chat target");
+
+  b.activeGroupId = "group-b";
+  ui.render();
+  assert.equal(ui.hasAction("Message Maya"), false, "changing audiences must not reinterpret the request's conversation");
+
+  b.activeGroupId = "group-a";
+  b.people = [];
+  ui.render();
+  assert.equal(ui.hasAction("Message Maya"), false, "a relayed SOS without a known person must not open an unusable chat");
+});
+
+test("an own request messages only its accepted helper and hides chat after closure", async () => {
+  const offers = ["Alex", "Jordan"].map((name) => ({ id: `offer-${name}`, nodeId: `node-${name}`, name, createdAt: 100, accepted: false, assignmentReceived: false }));
+  const r = request("own", null, { mine: true, offers });
+  const b = state([r]);
+  b.people = offers.map((offer) => ({ nodeId: offer.nodeId, name: offer.name, publicKey: offer.nodeId, scope: null, connected: true, lastSeenAt: 100, unreadCount: 0 }));
+  const ui = helpScreen(() => b, r.id);
+  ui.render();
+  assert.equal(ui.hasAction("Message Alex"), false);
+  assert.equal(ui.hasAction("Message Jordan"), false);
+
+  r.acceptedOfferId = "offer-Jordan";
+  r.status = "accepted";
+  ui.render();
+  assert.equal(ui.hasAction("Message Alex"), false, "the unaccepted helper must not become the conversation target");
+  await ui.press("Message Jordan");
+  assert.deepEqual(ui.routes, ["/chat/node-Jordan"]);
+
+  b.people = b.people.filter((person) => person.nodeId !== "node-Jordan");
+  ui.render();
+  assert.equal(ui.hasAction("Message Jordan"), false, "an accepted offer alone does not establish a direct chat peer");
+
+  b.people.push({ nodeId: "node-Jordan", name: "Jordan", publicKey: "jordan-key", scope: null, connected: false, lastSeenAt: 100, unreadCount: 0 });
+  for (const status of ["completed", "canceled", "expired"] as const) {
+    r.status = status;
+    ui.render();
+    assert.equal(ui.hasAction("Message Jordan"), false, `${status} requests do not retain an active-help action`);
   }
 });
 

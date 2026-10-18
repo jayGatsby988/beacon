@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -8,6 +8,9 @@ import {
   Text,
   TextInput,
   View,
+  type ListRenderItemInfo,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from "react-native";
 import {
   SafeAreaView,
@@ -19,7 +22,6 @@ import { useBeacon } from "../../src/services/BeaconContext";
 import {
   ErrorNotice,
   TopBar,
-  age,
   formatTime,
   styles as shared,
   useAction,
@@ -40,19 +42,23 @@ function Conversation({ b, id }: { b: BeaconState; id: string | undefined }) {
   const person = b.people.find(
     (p) => p.nodeId === id && p.scope === b.activeGroupId,
   );
-  const messages = (person ? b.messages : [])
-    .filter((m) => m.peerId === id)
-    .sort((a, z) => a.createdAt - z.createdAt || a.id.localeCompare(z.id));
+  const currentScopePerson = !!person;
+  const messages = useMemo(
+    () => (currentScopePerson ? b.messages : [])
+      .filter((m) => m.peerId === id)
+      .sort((a, z) => a.createdAt - z.createdAt || a.id.localeCompare(z.id)),
+    [b.messages, id, currentScopePerson],
+  );
   const [draft, setDraft] = useState("");
   const [readError, setReadError] = useState<string>();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const action = useAction();
   const callAction = useAction();
   const list = useRef<FlatList<DirectMessageView>>(null);
+  const followLatest = useRef(true);
   const insets = useSafeAreaInsets();
   const unread = person?.unreadCount ?? 0;
   const markRead = b.markChatRead;
-  const currentScopePerson = !!person;
   useFocusEffect(
     useCallback(() => {
       if (!id || !currentScopePerson) return;
@@ -80,9 +86,22 @@ function Conversation({ b, id }: { b: BeaconState; id: string | undefined }) {
     void action.run(async () => {
       await b.sendText(id, text);
       setDraft("");
+      followLatest.current = true;
+      list.current?.scrollToEnd({ animated: false });
     });
   };
   const name = person?.name || "Conversation";
+  const renderMessage = useCallback(
+    ({ item }: ListRenderItemInfo<DirectMessageView>) => <MessageBubble item={item} name={name} />,
+    [name],
+  );
+  const scrollToLatest = useCallback(() => {
+    if (followLatest.current) list.current?.scrollToEnd({ animated: false });
+  }, []);
+  const trackScroll = useCallback(({ nativeEvent }: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
+    followLatest.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 80;
+  }, []);
   const canCall =
     !!person?.connected && b.callSupported && !b.call && !callAction.busy;
   const callHint = !b.callSupported
@@ -106,7 +125,7 @@ function Conversation({ b, id }: { b: BeaconState; id: string | undefined }) {
             </View>
             <View style={s.personName}>
               <Text style={s.connection}>
-                {person ? person.connected ? "Connected nearby" : `Last seen ${age(person.lastSeenAt)}` : "Not in your current group"}
+                {person ? person.connected ? "Connected nearby" : "Not connected" : "Not in your current group"}
               </Text>
             </View>
             <Pressable
@@ -146,38 +165,22 @@ function Conversation({ b, id }: { b: BeaconState; id: string | undefined }) {
         <FlatList
           ref={list}
           data={messages}
-          keyExtractor={(message) => message.id}
+          keyExtractor={messageKey}
           style={s.flex}
           contentContainerStyle={s.messages}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
-          onContentSizeChange={() =>
-            list.current?.scrollToEnd({ animated: false })
-          }
-          onLayout={() => list.current?.scrollToEnd({ animated: false })}
+          onScroll={trackScroll}
+          scrollEventThrottle={100}
+          onContentSizeChange={scrollToLatest}
+          onLayout={scrollToLatest}
           ListEmptyComponent={
             <View style={s.empty}>
               <Text style={s.emptyTitle}>{person ? "Send your first message" : "Conversation unavailable"}</Text>
               {!person && <Text style={s.emptyDetail}>This person is not in your current audience.</Text>}
             </View>
           }
-          renderItem={({ item }) => (
-            <View
-              style={[s.message, item.mine ? s.mine : s.theirs]}
-              accessible
-              accessibilityLabel={`${item.mine ? "You" : name}: ${item.text}. ${formatTime(item.createdAt)}${item.mine ? `. ${deliveryLabel(item.status)}` : ""}`}
-            >
-              <Text selectable style={s.messageText}>
-                {item.text}
-              </Text>
-              <Text style={s.messageMeta}>
-                {formatTime(item.createdAt)}
-                {item.mine
-                  ? ` · ${deliveryLabel(item.status)}`
-                  : ""}
-              </Text>
-            </View>
-          )}
+          renderItem={renderMessage}
         />
         <View
           style={[
@@ -232,6 +235,20 @@ function Conversation({ b, id }: { b: BeaconState; id: string | undefined }) {
     </SafeAreaView>
   );
 }
+function messageKey(message: DirectMessageView) {
+  return message.id;
+}
+
+const MessageBubble = memo(function MessageBubble({ item, name }: { item: DirectMessageView; name: string }) {
+  return (
+    <View style={[s.message, item.mine ? s.mine : s.theirs]} accessible
+      accessibilityLabel={`${item.mine ? "You" : name}: ${item.text}. ${formatTime(item.createdAt)}${item.mine ? `. ${deliveryLabel(item.status)}` : ""}`}>
+      <Text selectable style={s.messageText}>{item.text}</Text>
+      <Text style={s.messageMeta}>{formatTime(item.createdAt)}{item.mine ? ` · ${deliveryLabel(item.status)}` : ""}</Text>
+    </View>
+  );
+});
+
 const s = StyleSheet.create({
   page: { flex: 1, backgroundColor: c.background },
   flex: { flex: 1 },

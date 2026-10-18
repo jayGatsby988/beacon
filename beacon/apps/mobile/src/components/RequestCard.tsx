@@ -64,11 +64,8 @@ export function RequestCard({ request, showOffer = false }: { request: RequestVi
         </View>
         {!!request.note && <Text numberOfLines={2} style={[s.note, completed && s.darkText]}>{request.note}</Text>}
         <Text style={[s.status, request.mine && !completed && { color: c.redLabel }, completed && s.darkText]} accessibilityLiveRegion="polite">{status}</Text>
-        {request.mine && request.status === "active" && (
-          <View style={s.progress}>
-            <Text style={styles.caption}>Saved on this phone</Text>
-            <Text style={s.offerCount}>{request.offers.length ? `${request.offers.length} ${request.offers.length === 1 ? "offer" : "offers"} · review` : "No offers yet"}</Text>
-          </View>
+        {request.mine && request.status === "active" && request.offers.length > 0 && (
+          <Text style={s.offerCount}>{request.offers.length} {request.offers.length === 1 ? "help offer" : "help offers"} · Review</Text>
         )}
         {(!!request.location.place || request.location.latitude != null) && (
           <View style={s.location}>
@@ -77,7 +74,6 @@ export function RequestCard({ request, showOffer = false }: { request: RequestVi
           </View>
         )}
         {request.pendingUpdate && <Text style={[styles.caption, completed && s.darkText]}>Update waiting to be shared.</Text>}
-        {request.mine && !completed && <Text style={s.openLabel}>View SOS & offers</Text>}
       </Pressable>
       {canOffer && (
         <Pressable
@@ -98,20 +94,18 @@ export function RequestCard({ request, showOffer = false }: { request: RequestVi
 }
 
 const s = StyleSheet.create({
-  card: { borderRadius: 16, borderWidth: 1, borderColor: c.border, backgroundColor: c.card, overflow: "hidden" },
+  card: { borderRadius: 18, borderWidth: 1, borderColor: c.border, backgroundColor: c.card, overflow: "hidden" },
   completed: { backgroundColor: c.text, borderColor: c.text },
-  content: { padding: 16, gap: 12, minHeight: 48 },
+  content: { padding: 18, gap: 10, minHeight: 48 },
   topRow: { flexDirection: "row", alignItems: "center", gap: 11 },
   symbol: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: c.raised },
   sosSymbol: { backgroundColor: "#342027" },
-  title: { fontFamily: fonts.medium, color: c.text, fontSize: 17, lineHeight: 24 },
+  title: { fontFamily: fonts.headline, color: c.text, fontSize: 23, lineHeight: 27, letterSpacing: -0.5 },
   note: { fontFamily: fonts.body, fontSize: 15, lineHeight: 22, color: c.secondary },
-  status: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 20, color: c.secondary },
+  status: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 21, color: c.secondary },
   darkText: { color: c.background },
-  progress: { borderTopWidth: 1, borderTopColor: c.border, paddingTop: 12, gap: 5 },
-  offerCount: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 21, color: c.text },
+  offerCount: { fontFamily: fonts.medium, fontSize: 15, lineHeight: 22, color: c.text },
   location: { flexDirection: "row", alignItems: "center", gap: 6 },
-  openLabel: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 21, color: c.text },
-  offerButton: { minHeight: 48, marginHorizontal: 16, marginBottom: 16, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.raised, padding: 13, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
-  offerLabel: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 20, color: c.text },
+  offerButton: { minHeight: 52, marginHorizontal: 18, marginBottom: 18, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.raised, padding: 13, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  offerLabel: { fontFamily: fonts.medium, fontSize: 16, lineHeight: 22, color: c.text },
 });

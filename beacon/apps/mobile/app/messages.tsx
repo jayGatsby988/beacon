@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { router } from "expo-router";
 import { ChevronRight, MessageCircle, Radio } from "lucide-react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -38,7 +39,10 @@ function PersonRow({ person, latest, separated = false }: { person: PersonView; 
 
 export default function Messages() {
   const b = useBeacon();
-  const { conversations, connected } = inboxRows(b.people, b.messages, b.activeGroupId);
+  const { conversations, connected } = useMemo(
+    () => inboxRows(b.people, b.messages, b.activeGroupId),
+    [b.people, b.messages, b.activeGroupId],
+  );
   const group = b.groups.find((item) => item.id === b.activeGroupId);
   const unread = conversations.reduce((total, row) => total + row.person.unreadCount, 0);
   return (

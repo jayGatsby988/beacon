@@ -23,6 +23,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  CircleAlert,
   ChevronRight,
   Settings2,
 } from "lucide-react-native";
@@ -373,11 +374,9 @@ export function StatusLine({
 export function ErrorNotice({ message }: { message?: string }) {
   if (!message) return null;
   return (
-    <View accessibilityLiveRegion="polite" accessibilityRole="alert">
-      <Card>
-        <Label>Couldn’t complete action</Label>
-        <Body>{message}</Body>
-      </Card>
+    <View accessibilityLiveRegion="polite" accessibilityRole="alert" style={styles.errorNotice}>
+      <CircleAlert size={18} color={c.secondary} />
+      <Text style={styles.errorText}>{message}</Text>
     </View>
   );
 }
@@ -436,13 +435,15 @@ export const age = (at: number) => {
           });
 };
 export const styles = StyleSheet.create({
+  errorNotice: { flexDirection: "row", alignItems: "flex-start", gap: 9, paddingVertical: 8 },
+  errorText: { flex: 1, fontFamily: fonts.body, fontSize: 14, lineHeight: 21, color: c.secondary },
   screen: { flex: 1, backgroundColor: c.background },
   content: {
     width: "100%",
     maxWidth: 640,
     alignSelf: "center",
     paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingTop: 16,
     paddingBottom: 20,
     gap: 20,
   },
@@ -459,8 +460,8 @@ export const styles = StyleSheet.create({
   },
   brand: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
   wordmark: {
-    fontFamily: fonts.medium,
-    fontSize: 24,
+    fontFamily: fonts.headline,
+    fontSize: 28,
     letterSpacing: -0.9,
     color: c.text,
   },
@@ -495,7 +496,7 @@ export const styles = StyleSheet.create({
   },
   chipText: { fontSize: 12, color: c.secondary, fontFamily: fonts.medium },
   heading: {
-    fontFamily: fonts.medium,
+    fontFamily: fonts.headline,
     color: c.text,
     letterSpacing: -0.7,
     flexShrink: 1,
