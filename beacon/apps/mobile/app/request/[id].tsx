@@ -1,13 +1,12 @@
 import { useState } from "react";
-import { Alert, Text, View } from "react-native";
+import { Alert, Pressable, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { Check, HeartHandshake } from "lucide-react-native";
+import { ChevronDown, ChevronUp } from "lucide-react-native";
 import { useBeacon } from "../../src/services/BeaconContext";
 import {
   Body,
   Button,
   Card,
-  Divider,
   ErrorNotice,
   Field,
   formatTime,
@@ -21,242 +20,84 @@ import {
 } from "../../src/components/ui";
 import { categoryNames, statusNames } from "../../src/components/RequestCard";
 import { LocationCard } from "../../src/components/LocationCard";
-import { colors as c, fonts } from "../../src/theme/tokens";
+import { colors as c } from "../../src/theme/tokens";
+
 export default function RequestDetails() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const b = useBeacon();
-  const r = b.requests.find((r) => r.id === id);
+  const r = b.requests.find((request) => request.id === id);
   const action = useAction();
   const [note, setNote] = useState("");
-  const [seenSaved, setSeenSaved] = useState(false);
+  const [showNote, setShowNote] = useState(false);
+  const [seenRequestId, setSeenRequestId] = useState<string>();
   if (!r)
     return (
       <Screen back title="Request">
-        <Heading size={38}>Request unavailable.</Heading>
-        <Body muted>
-          This request is not stored on this phone. It may have been cleared or
-          may not have arrived.
-        </Body>
+        <Heading>Request unavailable</Heading>
+        <Body muted>Not stored on this phone.</Body>
         <Button secondary onPress={() => router.replace("/(tabs)/nearby")}>
           Back to requests
         </Button>
       </Screen>
     );
   const closed = ["completed", "canceled", "expired"].includes(r.status);
-  const mine = r.mine;
-  const myOffer = r.offers.find((o) => o.nodeId === b.nodeId);
-  const accepted = r.offers.find((o) => o.id === r.acceptedOfferId);
-  const waiting = r.transport !== "received";
+  const myOffer = r.offers.find((offer) => offer.nodeId === b.nodeId);
+  const accepted = r.offers.find((offer) => offer.id === r.acceptedOfferId);
+  const canOffer = !r.mine && !closed && !myOffer && !accepted;
+  const offers = [...r.offers].sort(
+    (a, b) => Number(b.accepted) - Number(a.accepted),
+  );
   return (
-    <Screen back title={mine ? "Your request" : "Community request"}>
-      <View style={{ gap: 14 }}>
-        <View
-          style={{
-            flexDirection: "row",
-            justifyContent: "space-between",
-            gap: 12,
-          }}
-        >
-          <Label>{statusNames[r.status]}</Label>
-          <Label>{formatTime(r.createdAt)}</Label>
-        </View>
-        <Heading size={44}>{categoryNames[r.category]}</Heading>
-        <Body muted>
-          {mine ? "Requested by you" : `Shared by ${r.name || "a participant"}`}
-        </Body>
-        {!!r.note && (
-          <Body style={{ fontSize: 19, lineHeight: 29 }}>{r.note}</Body>
+    <Screen back title={r.mine ? "Your request" : "Request"}>
+      <View style={{ gap: 6 }}>
+        <Heading>{categoryNames[r.category]}</Heading>
+        <Text style={styles.caption}>
+          {r.mine ? "You" : r.name || "Participant"} · {formatTime(r.createdAt)}
+        </Text>
+        {!r.mine && closed && (
+          <Text style={styles.smallTitle}>{statusNames[r.status]}</Text>
         )}
+        {!!r.note && <Body>{r.note}</Body>}
       </View>
-      {closed ? (
-        <Card>
-          <View style={{ flexDirection: "row", gap: 14, alignItems: "center" }}>
-            <Check color={c.text} size={24} />
-            <Heading size={28}>{statusNames[r.status]}</Heading>
-          </View>
-          <Body muted>
-            {r.status === "completed"
-              ? mine
-                ? "You marked this request complete."
-                : "The requester marked this request complete."
-              : r.status === "canceled"
-                ? "This request has been canceled."
-                : "This request has expired."}
-            {r.pendingUpdate
-              ? " The update is saved locally and waiting to travel."
-              : ""}
-          </Body>
-        </Card>
-      ) : mine ? (
-        <Card alert={waiting}>
-          <Label color={waiting ? c.redLabel : c.secondary}>Your signal</Label>
-          <Heading size={32}>
-            {r.transport === "received"
-              ? "Received by a participant"
-              : r.transport === "forwarded"
-                ? "Passed to a relay"
-                : "Waiting for a connection"}
-          </Heading>
-          <Body muted>
-            {r.transport === "received"
-              ? `${r.recipientCount} ${r.recipientCount === 1 ? "participant has" : "participants have"} saved your request. This confirms receipt, not that someone has read it or that help is coming.`
-              : r.transport === "forwarded"
-                ? "A relay has your message. We’re waiting for a recipient’s receipt."
-                : "Your SOS is safely saved on this phone. It can travel when another participating phone connects."}
-          </Body>
-          <Divider />
+
+      {r.mine && (
+        <Card style={{ padding: 16, gap: 10 }}>
           <StatusLine
-            complete
-            title="Saved on this phone"
-            detail={formatTime(r.createdAt)}
-          />
-          <StatusLine
-            complete={r.forwardedCount > 0 || r.transport === "received"}
+            complete={
+              r.status === "completed" ||
+              r.status === "canceled" ||
+              r.transport === "received"
+            }
             title={
-              r.forwardedCount > 0 || r.transport === "received"
-                ? "Passed to a participating phone"
-                : "Waiting to reach another phone"
+              closed
+                ? statusNames[r.status]
+                : r.transport === "received"
+                  ? "Received by a participant"
+                  : r.transport === "forwarded"
+                    ? "Passed to a relay"
+                    : "Waiting for a connection"
             }
             detail={
-              r.forwardedCount
-                ? `${r.forwardedCount} recorded relay transfers`
-                : undefined
-            }
-          />
-          <StatusLine
-            complete={r.transport === "received"}
-            title={
               r.transport === "received"
-                ? "Recipient receipt confirmed"
-                : "Waiting for a recipient receipt"
+                ? `${r.recipientCount} ${r.recipientCount === 1 ? "participant" : "participants"} confirmed saving the request.`
+                : r.transport === "forwarded"
+                  ? "Forwarded; no recipient receipt recorded."
+                  : closed
+                    ? "Saved on this phone; no recipient receipt recorded."
+                    : "Saved on this phone."
             }
           />
-          <StatusLine
-            complete={r.seenCount > 0}
-            title={
-              r.seenCount
-                ? `Seen by ${r.seenCount} ${r.seenCount === 1 ? "participant" : "participants"}`
-                : "Waiting for a human response"
-            }
-          />
-        </Card>
-      ) : (
-        <Card>
-          <Label>Received on this phone</Label>
-          <Body muted>
-            This is a participant’s request for assistance. Location and details
-            are self-reported.
-          </Body>
-          {seenSaved ? (
-            <StatusLine
-              complete
-              title="Seen acknowledgment saved"
-              detail="It will reach the requester when a route is available."
-            />
-          ) : (
-            <TextButton
-              onPress={() =>
-                action.run(async () => {
-                  await b.markSeen(r.id);
-                  setSeenSaved(true);
-                })
-              }
-            >
-              Let them know you’ve seen it
-            </TextButton>
+          {r.seenCount > 0 && (
+            <Text style={styles.caption}>
+              Seen by {r.seenCount}{" "}
+              {r.seenCount === 1 ? "participant" : "participants"}.
+            </Text>
           )}
         </Card>
       )}
-      <LocationCard location={r.location} map={b.map} />
-      {!closed && (
-        <View style={{ gap: 16 }}>
-          <View
-            style={{ flexDirection: "row", justifyContent: "space-between" }}
-          >
-            <Label>People responding</Label>
-            <Label>
-              {r.offers.length} {r.offers.length === 1 ? "offer" : "offers"}
-            </Label>
-          </View>
-          {r.offers.length === 0 ? (
-            <Card>
-              <HeartHandshake size={28} color={c.secondary} />
-              <Heading size={28}>
-                {mine
-                  ? "Waiting for a helping hand."
-                  : "You could make a difference."}
-              </Heading>
-              <Body muted>
-                {mine
-                  ? "Offers will appear here as they reach your phone. Keep Beacon open to stay connected."
-                  : "Offer assistance only if you can do so safely. The requester chooses which offer to accept."}
-              </Body>
-            </Card>
-          ) : (
-            r.offers.map((o) => (
-              <Card key={o.id}>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    gap: 16,
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontFamily: fonts.medium,
-                      fontSize: 20,
-                      color: c.text,
-                      flex: 1,
-                    }}
-                  >
-                    {o.nodeId === b.nodeId ? "Your offer" : o.name}
-                  </Text>
-                  <Label>{formatTime(o.createdAt)}</Label>
-                </View>
-                {!!o.note && <Body muted>{o.note}</Body>}
-                {o.accepted ? (
-                  <>
-                    <StatusLine complete title="Offer accepted by requester" />
-                    <StatusLine
-                      complete={o.assignmentReceived}
-                      title={
-                        o.assignmentReceived
-                          ? "Volunteer confirmed"
-                          : "Waiting for helper’s assignment receipt"
-                      }
-                    />
-                  </>
-                ) : mine && !accepted ? (
-                  <Button
-                    secondary
-                    busy={action.busy}
-                    onPress={() => action.run(() => b.acceptOffer(r.id, o.id))}
-                  >
-                    Accept this offer
-                  </Button>
-                ) : (
-                  <Body muted>
-                    {accepted
-                      ? "Another offer was selected."
-                      : "Waiting for requester to accept."}
-                  </Body>
-                )}
-              </Card>
-            ))
-          )}
-        </View>
-      )}
-      {!mine && !closed && !myOffer && !accepted && (
-        <View style={{ gap: 16 }}>
-          <Field
-            label="How can you help? · optional"
-            placeholder="For example, I can bring water."
-            value={note}
-            onChangeText={setNote}
-            maxLength={140}
-            multiline
-          />
+
+      {canOffer && (
+        <View style={{ gap: 6 }}>
           <Button
             busy={action.busy}
             onPress={() =>
@@ -265,17 +106,104 @@ export default function RequestDetails() {
           >
             Offer help
           </Button>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: showNote }}
+            onPress={() => setShowNote((shown) => !shown)}
+            style={{
+              minHeight: 48,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
+          >
+            <Text style={styles.textButtonText}>
+              {showNote ? "Hide note" : note ? "Edit offer note" : "Add a note"}
+            </Text>
+            {showNote ? (
+              <ChevronUp color={c.secondary} size={20} />
+            ) : (
+              <ChevronDown color={c.secondary} size={20} />
+            )}
+          </Pressable>
+          {showNote && (
+            <Field
+              label="Offer note · optional"
+              value={note}
+              onChangeText={setNote}
+              maxLength={140}
+              multiline
+              style={{ minHeight: 80 }}
+            />
+          )}
         </View>
       )}
-      {mine && !closed && (
-        <View style={{ gap: 12 }}>
+
+      {!closed && (
+        <View style={{ gap: 10 }}>
+          {offers.length > 0 ? (
+            <Label>Offers · {offers.length}</Label>
+          ) : r.mine ? (
+            <Body muted>No offers yet.</Body>
+          ) : null}
+          {offers.map((offer, index) => (
+            <Card key={offer.id} style={{ gap: 10, padding: 16 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  gap: 12,
+                }}
+              >
+                <Text style={[styles.smallTitle, { flex: 1 }]}>
+                  {offer.nodeId === b.nodeId ? "Your offer" : offer.name}
+                </Text>
+                <Text style={styles.caption}>
+                  {formatTime(offer.createdAt)}
+                </Text>
+              </View>
+              {!!offer.note && <Body>{offer.note}</Body>}
+              {offer.accepted ? (
+                <StatusLine
+                  complete={offer.assignmentReceived}
+                  title={
+                    offer.assignmentReceived
+                      ? "Volunteer confirmed"
+                      : "Offer accepted · awaiting volunteer receipt"
+                  }
+                />
+              ) : r.mine && !accepted ? (
+                <Button
+                  secondary={index !== 0}
+                  busy={action.busy}
+                  onPress={() =>
+                    action.run(() => b.acceptOffer(r.id, offer.id))
+                  }
+                >
+                  Accept offer
+                </Button>
+              ) : (
+                <Text style={styles.caption}>
+                  {accepted
+                    ? "Another offer was selected."
+                    : "Awaiting requester acceptance."}
+                </Text>
+              )}
+            </Card>
+          ))}
+        </View>
+      )}
+
+      {r.mine && !closed && (
+        <View style={{ gap: 2 }}>
           <Button
             secondary
             busy={action.busy}
             onPress={() =>
               Alert.alert(
-                "Mark this request complete?",
-                "Confirm only when you no longer need help with this request.",
+                "Complete request?",
+                "Confirm that you no longer need help. The update will be shared when phones connect.",
                 [
                   { text: "Keep open", style: "cancel" },
                   {
@@ -291,8 +219,8 @@ export default function RequestDetails() {
           <TextButton
             onPress={() =>
               Alert.alert(
-                "Cancel your request?",
-                "A cancellation will be saved and shared when phones connect. Other participants may still see an older update until it reaches them.",
+                "Cancel request?",
+                "The cancellation will be shared when phones connect. Others may still see the request until then.",
                 [
                   { text: "Keep request", style: "cancel" },
                   {
@@ -308,20 +236,39 @@ export default function RequestDetails() {
           </TextButton>
         </View>
       )}
+
+      {!r.mine && !closed ? (
+        seenRequestId === r.id ? (
+          <Text style={styles.caption}>Seen acknowledgment saved.</Text>
+        ) : (
+          <TextButton
+            onPress={() =>
+              action.run(async () => {
+                await b.markSeen(r.id);
+                setSeenRequestId(r.id);
+              })
+            }
+          >
+            Mark as seen
+          </TextButton>
+        )
+      ) : null}
       {r.pendingUpdate && (
-        <Body muted style={{ fontSize: 13 }}>
-          Latest update is saved locally. Other phones may still have an earlier
-          state until the update reaches them.
-        </Body>
+        <Text style={styles.caption}>
+          Latest update saved here; other phones may still show an earlier
+          state.
+        </Text>
       )}
       <ErrorNotice message={action.error} />
-      <Text style={styles.caption}>
-        Request {r.id.slice(0, 8).toUpperCase()} · Last updated{" "}
-        {formatTime(r.updatedAt)}
-      </Text>
-      <TextButton onPress={() => router.push("/history")}>
-        View recorded history
-      </TextButton>
+      <LocationCard location={r.location} map={b.map} />
+      <View style={{ gap: 2 }}>
+        <Text style={styles.caption}>
+          Updated {formatTime(r.updatedAt)} · {r.id.slice(0, 8).toUpperCase()}
+        </Text>
+        <TextButton onPress={() => router.push("/history")}>
+          Recorded history
+        </TextButton>
+      </View>
     </Screen>
   );
 }

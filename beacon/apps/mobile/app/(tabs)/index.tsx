@@ -1,15 +1,12 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
-import { ArrowUpRight, ChevronDown, MapPin, Radio } from "lucide-react-native";
+import { ChevronDown, MapPin, Radio } from "lucide-react-native";
 import { useBeacon } from "../../src/services/BeaconContext";
 import {
-  Body,
-  Card,
   ErrorNotice,
   Field,
   Heading,
-  Label,
   Pill,
   Screen,
   TextButton,
@@ -45,27 +42,14 @@ export default function Home() {
       network={
         connected
           ? `${connected} ${connected === 1 ? "link" : "links"}`
-          : "No links yet"
+          : b.relayRunning
+            ? "Listening"
+            : "Connection"
       }
     >
-      <View style={{ gap: 13, paddingTop: 10 }}>
-        <Label>People make the difference</Label>
-        <Heading>
-          {active ? "Your request,\nstep by step." : "You’re not\non your own."}
-        </Heading>
-        <Body muted>
-          {active
-            ? "Your request is saved. Keep Beacon open so it can travel when phones connect."
-            : "Ask the people around you for help. Even when the internet is out."}
-        </Body>
-      </View>
+      <Heading>{active ? "Your SOS" : "I need help"}</Heading>
       {active ? (
-        <>
-          <RequestCard request={active} />
-          <TextButton onPress={() => router.push(`/request/${active.id}`)}>
-            Follow your request
-          </TextButton>
-        </>
+        <RequestCard request={active} />
       ) : (
         <>
           <Pressable
@@ -81,20 +65,10 @@ export default function Home() {
               action.busy && { opacity: 0.55 },
             ]}
           >
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <Text style={s.sosEyebrow}>COMMUNITY ASSISTANCE</Text>
-              <ArrowUpRight color={c.text} size={32} />
-            </View>
+            <Radio color={c.onAction} size={30} />
             <Text style={s.sosText}>
               {action.busy ? "Saving…" : "Send SOS"}
             </Text>
-            <Text style={s.sosCaption}>One tap. We’ll share what we can.</Text>
           </Pressable>
           <Pressable
             accessibilityRole="button"
@@ -103,7 +77,7 @@ export default function Home() {
             style={s.detailsToggle}
           >
             <Text style={s.detailsLabel}>
-              {details ? "Your request details" : "Add details, if you can"}
+              {details ? "Details · optional" : "Add details · optional"}
             </Text>
             <ChevronDown
               color={c.secondary}
@@ -112,10 +86,7 @@ export default function Home() {
             />
           </Pressable>
           {details && (
-            <View style={{ gap: 20 }}>
-              <Body muted>
-                All optional. Your SOS can go out without these.
-              </Body>
+            <View style={{ gap: 16 }}>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
                 {(
                   ["other", "injured", "trapped", "stranded"] as Category[]
@@ -132,7 +103,7 @@ export default function Home() {
                 ))}
               </View>
               <Field
-                label="A short note"
+                label="Note"
                 placeholder="What would help right now?"
                 value={note}
                 onChangeText={setNote}
@@ -140,8 +111,8 @@ export default function Home() {
                 multiline
               />
               <Field
-                label="Place, building or room"
-                placeholder="For example, library · second floor"
+                label="Place"
+                placeholder="Building, floor or room"
                 value={place}
                 onChangeText={setPlace}
                 maxLength={120}
@@ -151,94 +122,63 @@ export default function Home() {
         </>
       )}
       <ErrorNotice message={action.error || b.error} />
-      <Card style={{ gap: 18 }}>
-        <View style={{ flexDirection: "row", gap: 13 }}>
-          <MapPin size={20} color={c.secondary} />
-          <View style={{ flex: 1, gap: 4 }}>
+      {details && !active && (
+        <View style={s.location}>
+          <MapPin size={19} color={c.secondary} />
+          <View style={{ flex: 1, gap: 3 }}>
             <Text style={shared.smallTitle}>
               {b.location.source === "unavailable"
-                ? "Location not available"
-                : b.location.place || "Location report available"}
+                ? "Location unavailable"
+                : b.location.place || "Phone location"}
             </Text>
-            <Text style={shared.caption}>
-              {b.location.source === "unavailable"
-                ? "You can still send an SOS. Add a place if you can."
-                : `Last captured ${formatReportTime(b.location.capturedAt)}${b.location.accuracy != null ? ` · ±${Math.round(b.location.accuracy)} m` : ""}.`}
-            </Text>
+            {b.location.source !== "unavailable" && (
+              <Text style={shared.caption}>
+                {formatReportTime(b.location.capturedAt)}
+                {b.location.accuracy != null
+                  ? ` · ±${Math.round(b.location.accuracy)} m`
+                  : ""}
+              </Text>
+            )}
           </View>
         </View>
-        <View style={{ height: 1, backgroundColor: c.border }} />
-        <View style={{ flexDirection: "row", gap: 13 }}>
-          <Radio size={20} color={c.secondary} />
-          <View style={{ flex: 1, gap: 4 }}>
-            <Text style={shared.smallTitle}>
-              {b.relayRunning
-                ? "Listening for nearby phones"
-                : b.bluetooth === "unsupported"
-                  ? "Bluetooth unavailable here"
-                  : b.bluetooth === "poweredOff"
-                    ? "Bluetooth is off"
-                    : "Connection needs attention"}
-            </Text>
-            <Text style={shared.caption}>
-              {connected
-                ? `${connected} Bluetooth ${connected === 1 ? "link" : "links"} connected. Links are not unique people or phones.`
-                : b.bluetooth === "unsupported"
-                  ? "This device or build cannot use Bluetooth. You can still save a request locally."
-                  : "Requests wait safely on this phone until a connection is available."}
-            </Text>
-          </View>
+      )}
+      {b.relayRunning ? (
+        <Text style={shared.caption}>Keep Beacon open while using it.</Text>
+      ) : (
+        <View style={{ gap: 2 }}>
+          <Text style={shared.caption}>
+            {b.bluetooth === "unsupported"
+              ? "Bluetooth unavailable. SOS saves locally."
+              : b.bluetooth === "poweredOff"
+                ? "Turn on Bluetooth to share your SOS."
+                : "Enable Bluetooth to share your SOS."}
+          </Text>
+          <TextButton onPress={() => router.push("/network")}>
+            Connection
+          </TextButton>
         </View>
-      </Card>
+      )}
       <Text style={s.safety}>
-        For community help. Beacon does not contact emergency services or
-        guarantee a response.
+        Community help. Does not call emergency services.
       </Text>
-      <View
-        style={{
-          flexDirection: "row",
-          flexWrap: "wrap",
-          justifyContent: "space-between",
-          gap: 20,
-        }}
-      >
-        <TextButton onPress={() => router.push("/history")}>
-          Your history
-        </TextButton>
-        <TextButton onPress={() => router.push("/network")}>
-          Connection
-        </TextButton>
-      </View>
     </Screen>
   );
 }
 const s = StyleSheet.create({
   sos: {
     backgroundColor: c.red,
-    borderRadius: 26,
-    padding: 26,
-    minHeight: 216,
-    justifyContent: "space-between",
-    gap: 18,
-  },
-  sosEyebrow: {
-    fontFamily: fonts.medium,
-    fontSize: 10,
-    flexShrink: 1,
-    color: c.onAction,
-    letterSpacing: 1.5,
+    borderRadius: 20,
+    padding: 24,
+    minHeight: 168,
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 12,
   },
   sosText: {
     fontFamily: fonts.headline,
-    fontSize: 54,
-    lineHeight: 58,
-    letterSpacing: -2,
-    color: c.text,
-  },
-  sosCaption: {
-    fontFamily: fonts.body,
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: 40,
+    lineHeight: 48,
+    letterSpacing: -1,
     color: c.onAction,
   },
   detailsToggle: {
@@ -254,6 +194,15 @@ const s = StyleSheet.create({
     fontSize: 15,
     color: c.secondary,
     flexShrink: 1,
+  },
+  location: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: c.border,
   },
   safety: {
     fontFamily: fonts.body,

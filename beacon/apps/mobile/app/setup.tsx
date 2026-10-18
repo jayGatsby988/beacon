@@ -9,8 +9,6 @@ import {
   Card,
   ErrorNotice,
   Field,
-  Heading,
-  Label,
   Screen,
   StatusLine,
   TextButton,
@@ -22,18 +20,11 @@ export default function Setup() {
   const [name, setName] = useState(b.displayName);
   const action = useAction();
   return (
-    <Screen>
-      <View style={{ gap: 14 }}>
-        <Label>A connection worth preparing</Label>
-        <Heading>{"When signals fail,\npeople don’t."}</Heading>
-        <Body muted>
-          Beacon connects participating phones over Bluetooth. Set up once. Ask
-          for help in a single tap.
-        </Body>
-      </View>
+    <Screen title="Set up Beacon">
+      <Body muted>Share requests over Bluetooth. No account required.</Body>
       <Field
-        label="What should people call you?"
-        placeholder="Your first name"
+        label="Name (optional)"
+        placeholder="Participant"
         value={name}
         maxLength={40}
         onChangeText={setName}
@@ -43,38 +34,33 @@ export default function Setup() {
         <View style={{ flexDirection: "row", gap: 14 }}>
           <Bluetooth color={c.text} size={23} />
           <View style={{ flex: 1, gap: 6 }}>
-            <Body>Nearby connection</Body>
-            <Body muted>
-              Allow Bluetooth to receive and relay requests. No online account
-              needed.
-            </Body>
+            <Body>Bluetooth</Body>
+            <Body muted>Receive and relay nearby requests.</Body>
           </View>
         </View>
         <View style={{ height: 1, backgroundColor: c.border }} />
         <View style={{ flexDirection: "row", gap: 14 }}>
           <MapPin color={c.text} size={23} />
           <View style={{ flex: 1, gap: 6 }}>
-            <Body>A useful location</Body>
-            <Body muted>
-              Location is optional. You can describe a building or room instead.
-            </Body>
+            <Body>Location (optional)</Body>
+            <Body muted>Share coordinates or enter a place manually.</Body>
           </View>
         </View>
         <StatusLine
           complete={b.bluetooth === "poweredOn"}
           title={
             b.bluetooth === "poweredOn"
-              ? "Bluetooth is available"
+              ? "Bluetooth ready"
               : b.bluetooth === "unsupported"
-                ? "Bluetooth unavailable on this device or build"
-                : "Bluetooth permission or power needed"
+                ? "Bluetooth unavailable"
+                : "Enable Bluetooth and allow access"
           }
         />
         <StatusLine
           complete={b.locationPermission === "granted"}
           title={
             b.locationPermission === "granted"
-              ? "Location permission allowed"
+              ? "Location allowed"
               : "Location is optional"
           }
         />
@@ -83,14 +69,13 @@ export default function Setup() {
           busy={action.busy}
           onPress={() => action.run(b.requestPermissions)}
         >
-          Allow nearby connection
+          Check permissions
         </Button>
       </Card>
       <View style={{ flexDirection: "row", gap: 14, paddingHorizontal: 2 }}>
         <Smartphone size={22} color={c.secondary} />
         <Body muted style={{ flex: 1 }}>
-          Keep Beacon open during use. Messages need a nearby participant, or a
-          later encounter, to travel.
+          Keep Beacon open. Delivery requires another participating phone.
         </Body>
       </View>
       <ErrorNotice message={action.error || b.error} />
@@ -103,14 +88,13 @@ export default function Setup() {
           })
         }
       >
-        Start using Beacon
+        Continue
       </Button>
       <Body muted style={{ fontSize: 12, lineHeight: 19 }}>
-        Install before an outage. Beacon supports community assistance; it does
-        not automatically contact emergency services or guarantee help.
+        Beacon does not contact emergency services or guarantee help.
       </Body>
       <TextButton onPress={() => router.push("/settings")}>
-        Prepare an offline map
+        Offline map settings
       </TextButton>
     </Screen>
   );

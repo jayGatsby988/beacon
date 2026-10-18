@@ -28,13 +28,20 @@ export default function History() {
   for (const row of summary?.activityBuckets ?? []) {
     totals.set(row.bucket, (totals.get(row.bucket) ?? 0) + row.event_count);
   }
-  const activity = [...totals].sort(([a], [b]) => Date.parse(a) - Date.parse(b)).slice(-12);
+  const activity = [...totals]
+    .sort(([a], [b]) => Date.parse(a) - Date.parse(b))
+    .slice(-12);
   const peak = Math.max(1, ...activity.map(([, count]) => count));
-  const duration = (milliseconds: number | null) => milliseconds === null ? "—"
-    : milliseconds < 1000 ? `${Math.round(milliseconds)} ms`
-    : milliseconds < 60000 ? `${(milliseconds / 1000).toFixed(1)} s`
-    : milliseconds < 3600000 ? `${(milliseconds / 60000).toFixed(1)} min`
-    : `${(milliseconds / 3600000).toFixed(1)} h`;
+  const duration = (milliseconds: number | null) =>
+    milliseconds === null
+      ? "—"
+      : milliseconds < 1000
+        ? `${Math.round(milliseconds)} ms`
+        : milliseconds < 60000
+          ? `${(milliseconds / 1000).toFixed(1)} s`
+          : milliseconds < 3600000
+            ? `${(milliseconds / 60000).toFixed(1)} min`
+            : `${(milliseconds / 3600000).toFixed(1)} h`;
   const events = [
     ...(source === "local" ? b.events : b.sync.combinedEvents || []),
   ].sort((a, b) => a.createdAt - b.createdAt);
@@ -44,14 +51,6 @@ export default function History() {
     step === null ? undefined : events[Math.min(step, events.length - 1)];
   return (
     <Screen back title="History & replay">
-      <View style={{ gap: 13 }}>
-        <Label>What this phone can confirm</Label>
-        <Heading>{"Every signal\nhas a story."}</Heading>
-        <Body muted>
-          A record of saved events. Replay what is known, with room for what
-          hasn’t arrived.
-        </Body>
-      </View>
       <View style={{ flexDirection: "row", gap: 8 }}>
         <Pill
           selected={source === "local"}
@@ -87,10 +86,10 @@ export default function History() {
         </View>
         <Body muted>
           {source === "local"
-            ? "Available offline. Events on other phones may not have reached this device."
+            ? "Saved on this phone; available offline."
             : b.sync.status === "disabled"
-              ? "Connect an incident in settings to retrieve its combined replay."
-              : "Combined events are available only after a successful cloud sync. Late uploads may change this history."}
+              ? "Connect an incident to load its shared history."
+              : "Last synced events. Late uploads may change this history."}
         </Body>
         <Divider />
         <View
@@ -125,61 +124,91 @@ export default function History() {
       {summary && (
         <Card style={{ gap: 18 }}>
           <Label>Incident {summary.incidentId} · incomplete record</Label>
-          <Heading size={30}>{summary.requestCount} recorded requests</Heading>
+          <Heading size={22}>{summary.requestCount} recorded requests</Heading>
           <Body muted>
-            {summary.requestsWithRecipientReceipt} with a verified recipient receipt · {summary.completedRequests} completed by the requester
+            {summary.requestsWithRecipientReceipt} with a verified recipient
+            receipt · {summary.completedRequests} completed by the requester
           </Body>
           <Body muted>
-            A receipt confirms that an intended participant saved the request. It does not confirm that a person read it or that help arrived.
+            Receipts confirm a saved request, not that someone read it or help
+            arrived.
           </Body>
           <Text style={styles.caption}>
-            Latest server ingestion: {new Date(summary.updatedAt).toLocaleString()}. Phones that have not uploaded are missing; late uploads can change these totals.
+            Server updated {new Date(summary.updatedAt).toLocaleString()}.
+            Phones that have not synced are excluded.
           </Text>
           {summary.requestStatisticsTruncated && (
-            <Body muted>Partial statistics: the server’s signed-message limit was reached. These counts cover only the inspected records.</Body>
+            <Body muted>
+              Partial totals: the server’s record limit was reached.
+            </Body>
           )}
           <Divider />
-          <Label>Round trips observed on this phone</Label>
+          <Label>Local receipt round trips</Label>
           {summary.localReceiptRoundTripMs.sampleCount > 0 ? (
             <>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 24 }}>
                 <View style={{ gap: 6 }}>
-                  <Text style={styles.smallTitle}>{duration(summary.localReceiptRoundTripMs.p50)}</Text>
+                  <Text style={styles.smallTitle}>
+                    {duration(summary.localReceiptRoundTripMs.p50)}
+                  </Text>
                   <Text style={styles.caption}>Median</Text>
                 </View>
                 <View style={{ gap: 6 }}>
-                  <Text style={styles.smallTitle}>{duration(summary.localReceiptRoundTripMs.p95)}</Text>
+                  <Text style={styles.smallTitle}>
+                    {duration(summary.localReceiptRoundTripMs.p95)}
+                  </Text>
                   <Text style={styles.caption}>95th percentile</Text>
                 </View>
               </View>
               <Text style={styles.caption}>
-                {summary.localReceiptRoundTripMs.sampleCount} local requester samples, from SOS saved to first verified receipt saved, using this phone’s clock. Clock changes can affect elapsed times. These samples cover local history, not the entire incident.
+                {summary.localReceiptRoundTripMs.sampleCount} local
+                SOS-to-receipt samples. Uses this phone’s clock; clock changes
+                affect timing.
               </Text>
             </>
           ) : (
-            <Body muted>No local requester round trips are confirmed yet. Timing from different phones is not presented as a round trip.</Body>
+            <Body muted>No local SOS-to-receipt samples yet.</Body>
           )}
           {activity.length > 0 && (
             <>
               <Divider />
               <Label>Uploaded observations by hour</Label>
-              <View style={{ flexDirection: "row", gap: 6, height: 64, alignItems: "flex-end" }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  gap: 6,
+                  height: 64,
+                  alignItems: "flex-end",
+                }}
+              >
                 {activity.map(([bucket, count]) => (
                   <View
                     key={bucket}
                     accessible
                     accessibilityLabel={`${new Date(bucket).toLocaleString()}: ${count} observations`}
-                    style={{ flex: 1, height: Math.max(3, 64 * count / peak), backgroundColor: c.secondary, borderRadius: 2 }}
+                    style={{
+                      flex: 1,
+                      height: Math.max(3, (64 * count) / peak),
+                      backgroundColor: c.secondary,
+                      borderRadius: 2,
+                    }}
                   />
                 ))}
               </View>
               <Text style={styles.caption}>
-                {new Date(activity[0][0]).toLocaleString()} to {new Date(activity[activity.length - 1][0]).toLocaleString()}. Up to 12 recorded hourly buckets; hours without returned data are omitted. Multiple phones can record the same message.
+                {new Date(activity[0][0]).toLocaleString()} to{" "}
+                {new Date(activity[activity.length - 1][0]).toLocaleString()}.
+                Last 12 returned hours; missing hours omitted. Multiple phones
+                may record one message.
               </Text>
             </>
           )}
           <Text style={styles.caption}>
-            {summary.aggregateRefreshPending ? "Hourly totals are refreshing; late uploads may not appear yet." : activity.length ? "Hourly totals come from the server’s recorded observations." : "No hourly aggregate data is available yet."}
+            {summary.aggregateRefreshPending
+              ? "Hourly totals are refreshing; late uploads may not appear yet."
+              : activity.length
+                ? "Counts reflect uploaded observations."
+                : "No hourly aggregate data is available yet."}
           </Text>
         </Card>
       )}
@@ -191,19 +220,15 @@ export default function History() {
             <Text
               style={{
                 fontFamily: fonts.headline,
-                fontSize: 32,
-                lineHeight: 36,
+                fontSize: 24,
+                lineHeight: 30,
                 color: c.text,
               }}
             >
-              {selected
-                ? formatTime(selected.createdAt)
-                : "The full picture so far."}
+              {selected ? formatTime(selected.createdAt) : "All events"}
             </Text>
             <Body muted>
-              {selected
-                ? selected.title
-                : "Step through the recorded events in order."}
+              {selected ? selected.title : "Step through saved events."}
             </Body>
             <View
               style={{ flexDirection: "row", gap: 8, alignItems: "center" }}
@@ -360,15 +385,15 @@ export default function History() {
       ) : (
         <Card style={{ paddingVertical: 32, gap: 20 }}>
           <Clock3 color={c.secondary} size={32} />
-          <Heading size={30}>
+          <Heading size={22}>
             {source === "local"
-              ? "Your story starts here."
-              : "No combined events yet."}
+              ? "No local events yet"
+              : "No shared events yet"}
           </Heading>
           <Body muted>
             {source === "local"
-              ? "Requests, receipts and assistance updates will create a local record as they happen."
-              : "Sync a configured incident to retrieve the events available to your community."}
+              ? "Requests and assistance updates will appear here."
+              : "Sync an incident to load shared events."}
           </Body>
         </Card>
       )}

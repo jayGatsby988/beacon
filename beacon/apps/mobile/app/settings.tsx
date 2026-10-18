@@ -1,5 +1,7 @@
-import { useRef, useState } from "react";
-import { Alert, Linking, Switch, View } from "react-native";
+import { useRef, useState, type ReactNode } from "react";
+import { Alert, Linking, Pressable, Switch, View } from "react-native";
+import { ChevronDown, ChevronUp } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBeacon } from "../src/services/BeaconContext";
 import {
   Body,
@@ -8,7 +10,6 @@ import {
   Divider,
   ErrorNotice,
   Field,
-  Heading,
   Label,
   Row,
   Screen,
@@ -17,8 +18,51 @@ import {
   useAction,
 } from "../src/components/ui";
 import { colors as c } from "../src/theme/tokens";
+function SettingsSection({
+  title,
+  summary,
+  children,
+}: {
+  title: string;
+  summary?: string;
+  children: ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <Card>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={summary ? `${title}, ${summary}` : title}
+        accessibilityState={{ expanded }}
+        onPress={() => setExpanded((value) => !value)}
+        style={{
+          minHeight: 48,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+        }}
+      >
+        <View style={{ flex: 1, gap: 4 }}>
+          <Body>{title}</Body>
+          {summary && (
+            <Body muted style={{ fontSize: 13 }}>
+              {summary}
+            </Body>
+          )}
+        </View>
+        {expanded ? (
+          <ChevronUp color={c.secondary} size={20} />
+        ) : (
+          <ChevronDown color={c.secondary} size={20} />
+        )}
+      </Pressable>
+      {expanded && <View style={{ gap: 12 }}>{children}</View>}
+    </Card>
+  );
+}
 export default function Settings() {
   const b = useBeacon();
+  const insets = useSafeAreaInsets();
   const [name, setName] = useState(b.displayName);
   const [cloudUrl, setCloudUrl] = useState("");
   const [incidentId, setIncidentId] = useState("");
@@ -54,19 +98,54 @@ export default function Settings() {
     }
   };
   return (
-    <Screen back title="Prepare & settings">
-      <View style={{ gap: 13 }}>
-        <Label>A little preparation helps</Label>
-        <Heading>{"Ready before\nyou need it."}</Heading>
-        <Body muted>
-          Your identity and requests live on this phone. Local assistance works
-          without an online account.
-        </Body>
-      </View>
+    <Screen
+      back
+      title="Settings"
+      footer={
+        <View
+          style={{
+            paddingHorizontal: 20,
+            paddingTop: 10,
+            paddingBottom: Math.max(insets.bottom, 12),
+            gap: 8,
+            borderTopWidth: 1,
+            borderTopColor: c.border,
+            backgroundColor: c.background,
+          }}
+        >
+          <ErrorNotice message={action.error} />
+          {saved && <Body>Settings saved.</Body>}
+          <Button
+            busy={action.busy}
+            onPress={() =>
+              action.run(async () => {
+                await b.saveSettings({
+                  displayName: name.trim() || "Participant",
+                  ...(cloudUrl.trim() ? { cloudUrl: cloudUrl.trim() } : {}),
+                  ...(incidentId.trim()
+                    ? { incidentId: incidentId.trim() }
+                    : {}),
+                  ...(accessToken.trim()
+                    ? { accessToken: accessToken.trim() }
+                    : {}),
+                  ...(mapStyleUrl.trim()
+                    ? { mapStyleUrl: mapStyleUrl.trim() }
+                    : {}),
+                });
+                setSaved(true);
+                setAccessToken("");
+              })
+            }
+          >
+            Save settings
+          </Button>
+        </View>
+      }
+    >
       <Card>
-        <Label>Your identity</Label>
+        <Label>Profile</Label>
         <Field
-          label="Display name"
+          label="Display name (optional)"
           value={name}
           onChangeText={setName}
           maxLength={40}
@@ -80,7 +159,7 @@ export default function Settings() {
           <View style={{ flex: 1, gap: 8 }}>
             <Body>Nearby sharing</Body>
             <Body muted style={{ fontSize: 14 }}>
-              Help messages travel while Beacon is open.
+              Relay requests while Beacon is open.
             </Body>
           </View>
           <Switch
@@ -116,31 +195,16 @@ export default function Settings() {
           Open device settings
         </TextButton>
         <TextButton onPress={() => action.run(b.refreshLocation)}>
-          Refresh location report
+          Refresh location
         </TextButton>
       </Card>
-      <Card>
-        <Label>Offline map</Label>
-        <Heading size={29}>
-          {b.map.status === "ready"
-            ? "A map, ready to go."
-            : b.map.status === "downloading"
-              ? "Saving your map…"
-              : "Bring a map with you."}
-        </Heading>
+      <SettingsSection
+        title="Offline map"
+        summary={`${b.map.name || "UW campus"} · ${b.map.status === "downloading" ? `${Math.round(b.map.progress * 100)}%` : b.map.status}`}
+      >
         <Body muted>
-          {b.map.status === "ready"
-            ? `${b.map.name || "Local region"} is stored on this phone.`
-            : "A UW campus geometry map is included. You can also download a custom region while connected."}
+          UW campus map included. Custom downloads require internet.
         </Body>
-        <Row
-          label="Map status"
-          value={
-            b.map.status === "downloading"
-              ? `${Math.round(b.map.progress * 100)}%`
-              : b.map.status
-          }
-        />
         {b.map.bytes != null && (
           <Row
             label="Stored size"
@@ -151,7 +215,7 @@ export default function Settings() {
           <Row label="Updated" value={formatReportTime(b.map.updatedAt)} />
         )}
         <Field
-          label="Offline-compatible map style URL"
+          label="Custom map style URL (optional)"
           placeholder="https://your-provider/style.json"
           value={mapStyleUrl}
           onChangeText={setMapStyleUrl}
@@ -160,10 +224,9 @@ export default function Settings() {
           keyboardType="url"
         />
         <Body muted style={{ fontSize: 12, lineHeight: 19 }}>
-          Optional. A blank field keeps your saved provider. For another region,
-          use a provider that permits offline storage and save its URL before
-          downloading. Choose “Use included UW map” below to clear the saved
-          provider and return to the bundled campus map.
+          Save settings before downloading. Blank keeps the current provider.
+          The provider must allow offline storage. “Use included UW map” resets
+          it.
         </Body>
         {b.map.error && <Body>{b.map.error}</Body>}
         <Button
@@ -232,12 +295,11 @@ export default function Settings() {
             Remove saved map
           </TextButton>
         )}
-      </Card>
-      <Card>
-        <Label>Community incident · optional</Label>
+      </SettingsSection>
+      <SettingsSection title="Cloud sync (optional)" summary={b.sync.status}>
         <Body muted>
-          Connect to your organizer’s incident to upload recorded events and
-          view a combined replay. Location and request details may be included.
+          Manually upload events to your organizer for a combined replay.
+          Uploads may include location and request details.
         </Body>
         <Field
           label="Server URL"
@@ -266,8 +328,7 @@ export default function Settings() {
           autoCorrect={false}
         />
         <Body muted style={{ fontSize: 12 }}>
-          Leave connection fields blank to keep existing settings. Sync is
-          started manually from History.
+          Blank fields keep saved settings. Start sync from History.
         </Body>
         <Row label="Cloud sync" value={b.sync.status} />
         {b.sync.status !== "disabled" && (
@@ -301,36 +362,11 @@ export default function Settings() {
             Disconnect incident
           </TextButton>
         )}
-      </Card>
-      <ErrorNotice message={action.error} />
-      {saved && <Body>Settings saved on this phone.</Body>}
-      <Button
-        busy={action.busy}
-        onPress={() =>
-          action.run(async () => {
-            await b.saveSettings({
-              displayName: name.trim() || "Participant",
-              ...(cloudUrl.trim() ? { cloudUrl: cloudUrl.trim() } : {}),
-              ...(incidentId.trim() ? { incidentId: incidentId.trim() } : {}),
-              ...(accessToken.trim()
-                ? { accessToken: accessToken.trim() }
-                : {}),
-              ...(mapStyleUrl.trim()
-                ? { mapStyleUrl: mapStyleUrl.trim() }
-                : {}),
-            });
-            setSaved(true);
-            setAccessToken("");
-          })
-        }
-      >
-        Save settings
-      </Button>
-      <Card>
-        <Label>Your local data</Label>
+      </SettingsSection>
+      <SettingsSection title="Local data">
         <Body muted>
-          Export redacted diagnostics for troubleshooting. Request notes and
-          precise locations are excluded by default.
+          Diagnostics exclude request notes, precise locations and access
+          tokens.
         </Body>
         <TextButton onPress={() => action.run(b.exportDiagnostics)}>
           Export redacted diagnostics
@@ -353,12 +389,7 @@ export default function Settings() {
         >
           Clear eligible history
         </TextButton>
-      </Card>
-      <Body muted style={{ fontSize: 12, lineHeight: 19 }}>
-        Beacon is a community coordination tool. It does not automatically
-        contact emergency services. Delivery depends on participating phones,
-        available radio connections and app operation.
-      </Body>
+      </SettingsSection>
     </Screen>
   );
 }

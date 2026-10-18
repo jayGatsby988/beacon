@@ -24,14 +24,14 @@ export default function TabsLayout() {
         tabBarStyle: {
           backgroundColor: c.background,
           borderTopColor: c.border,
-          height: 76 + insets.bottom + Math.max(0, fontScale - 1) * 22,
-          paddingTop: 12,
-          paddingBottom: Math.max(insets.bottom, 12),
+          height: 64 + insets.bottom + Math.max(0, fontScale - 1) * 22,
+          paddingTop: 8,
+          paddingBottom: Math.max(insets.bottom, 8),
         },
         tabBarLabelStyle: {
           fontFamily: fonts.medium,
           fontSize: 12,
-          marginTop: 6,
+          marginTop: 4,
         },
         sceneStyle: { backgroundColor: c.background },
       }}

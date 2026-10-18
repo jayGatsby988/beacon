@@ -1,71 +1,57 @@
 import { Text, View } from "react-native";
-import { MapPin } from "lucide-react-native";
 import RequestMap from "../services/RequestMap";
-import { LocationReport, MapState } from "../ui/types";
-import { Body, Card, formatReportTime, Label, Row, styles } from "./ui";
-import { colors as c } from "../theme/tokens";
+import type { LocationReport, MapState } from "../ui/types";
+import { Body, Card, formatReportTime, Label, styles } from "./ui";
+
 export function LocationCard({
-  location: l,
+  location,
   map,
 }: {
   location: LocationReport;
   map: MapState;
 }) {
+  const hasCoordinates =
+    location.latitude != null && location.longitude != null;
+  const coordinates = hasCoordinates
+    ? `${location.latitude!.toFixed(5)}, ${location.longitude!.toFixed(5)}`
+    : undefined;
+  const source =
+    location.source === "device"
+      ? "Device report"
+      : location.source === "manual"
+        ? "Manual report"
+        : "Location unavailable";
   return (
     <Card style={{ padding: 0, overflow: "hidden", gap: 0 }}>
-      <View style={{ padding: 22, gap: 14 }}>
+      <View style={{ padding: 16, gap: 6 }}>
         <Label>Reported location</Label>
-        <View style={{ flexDirection: "row", gap: 12 }}>
-          <MapPin size={22} color={c.text} />
-          <Body style={{ flex: 1 }}>
-            {l.place ||
-              (l.latitude != null
-                ? "Shared coordinates"
-                : "No location shared")}
-          </Body>
-        </View>
-      </View>
-      {l.latitude != null && l.longitude != null && (
-        <View style={{ height: 240 }}>
-          <RequestMap location={l} map={map} />
-        </View>
-      )}
-      <View
-        style={{
-          padding: 22,
-          gap: 12,
-          paddingTop: l.latitude != null ? 22 : 0,
-        }}
-      >
-        {l.latitude != null && l.longitude != null && (
+        {location.place ? (
+          <Body>{location.place}</Body>
+        ) : !hasCoordinates ? (
+          <Body muted>No location shared.</Body>
+        ) : null}
+        {coordinates && (
           <Text
             selectable
             style={[styles.body, { fontVariant: ["tabular-nums"] }]}
           >
-            {l.latitude.toFixed(5)}, {l.longitude.toFixed(5)}
+            {coordinates}
           </Text>
         )}
-        <Row
-          label="Source"
-          value={
-            l.source === "device"
-              ? "Device location"
-              : l.source === "manual"
-                ? "Manually reported"
-                : "Not available"
-          }
-        />
-        {l.capturedAt != null && (
-          <Row label="Captured" value={formatReportTime(l.capturedAt)} />
+        {location.source !== "unavailable" && (
+          <Text style={styles.caption}>
+            {source} · {formatReportTime(location.capturedAt)} · Not live
+            {location.accuracy != null
+              ? ` · ±${Math.round(location.accuracy)} m`
+              : ""}
+          </Text>
         )}
-        {l.accuracy != null && (
-          <Row label="Accuracy" value={`±${Math.round(l.accuracy)} meters`} />
-        )}
-        <Text style={styles.caption}>
-          A location report, not live tracking. Indoor readings may not identify
-          the correct building or floor.
-        </Text>
       </View>
+      {hasCoordinates && (
+        <View style={{ height: 200 }}>
+          <RequestMap location={location} map={map} />
+        </View>
+      )}
     </Card>
   );
 }

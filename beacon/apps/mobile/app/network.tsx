@@ -7,7 +7,6 @@ import {
   Card,
   Divider,
   ErrorNotice,
-  Heading,
   Label,
   Row,
   Screen,
@@ -30,7 +29,7 @@ function NetworkDiagram({ peers }: { peers: PeerView[] }) {
       accessibilityLabel={`${shown.length} Bluetooth sessions shown. Solid lines are current connections. Dotted lines are discovered sessions, not connected. Sessions are not unique people or phones.`}
       style={{ alignItems: "center" }}
     >
-      <Svg width="100%" height={240} viewBox="0 0 300 240">
+      <Svg width="100%" height={160} viewBox="0 0 300 240">
         <Circle
           cx={150}
           cy={120}
@@ -83,14 +82,7 @@ export default function Network() {
   const connected = b.peers.filter((p) => p.state === "connected").length;
   return (
     <Screen back title="Connection">
-      <View style={{ gap: 13 }}>
-        <Label>Your part of the network</Label>
-        <Heading>{"Small signals.\nShared reach."}</Heading>
-        <Body muted>
-          Phones carry requests between encounters. Keep the app open to send,
-          receive and relay.
-        </Body>
-      </View>
+      <Body muted>Keep Beacon open to send, receive and relay requests.</Body>
       <Card style={{ padding: 20, gap: 12 }}>
         <NetworkDiagram peers={b.peers} />
         <View
@@ -104,7 +96,7 @@ export default function Network() {
             <Text
               style={{
                 fontFamily: fonts.headline,
-                fontSize: 34,
+                fontSize: 26,
                 color: c.text,
               }}
             >
@@ -117,7 +109,7 @@ export default function Network() {
             <Text
               style={{
                 fontFamily: fonts.headline,
-                fontSize: 34,
+                fontSize: 26,
                 color: c.text,
               }}
             >
@@ -129,8 +121,8 @@ export default function Network() {
         <Divider />
         <Body muted style={{ fontSize: 13, lineHeight: 20 }}>
           {connected
-            ? "Solid lines show connections. Dotted lines show discovery only, not connection. Layout does not represent distance. One phone can have multiple links."
-            : "No Bluetooth links are connected right now. Saved requests can travel at a later encounter."}
+            ? "Solid: connected. Dotted: discovered. One phone can have multiple links; positions do not show distance."
+            : "No connected links. Saved requests will wait for a connection."}
         </Body>
       </Card>
       <Card>
@@ -144,7 +136,7 @@ export default function Network() {
                 : b.bluetooth === "unauthorized"
                   ? "Permission needed"
                   : b.bluetooth === "unsupported"
-                    ? "Unavailable on this device or build"
+                    ? "Unavailable"
                     : "Checking availability"
           }
         />
@@ -152,7 +144,7 @@ export default function Network() {
           label="Nearby sharing"
           value={
             b.relayRunning
-              ? "Running in foreground"
+              ? "Running"
               : b.relayEnabled
                 ? "Waiting to start"
                 : "Paused"
@@ -170,8 +162,7 @@ export default function Network() {
         />
         <Divider />
         <Body muted>
-          Internet and Bluetooth are separate. Cloud upload never confirms that
-          a person received your request.
+          Cloud upload does not confirm delivery to another phone.
         </Body>
       </Card>
       {b.bluetooth !== "poweredOn" && b.bluetooth !== "unsupported" && (
@@ -196,9 +187,8 @@ export default function Network() {
         <Card>
           <Label>Bluetooth unavailable here</Label>
           <Body muted>
-            This device or build cannot share over Bluetooth. A supported
-            physical phone with Beacon’s native build is required. Requests can
-            still be saved locally.
+            This device or build can save requests but cannot share them over
+            Bluetooth.
           </Body>
         </Card>
       )}
@@ -211,7 +201,7 @@ export default function Network() {
         {b.relayEnabled ? "Pause nearby sharing" : "Enable nearby sharing"}
       </Button>
       <ErrorNotice message={action.error || b.error} />
-      <Label>Observed Bluetooth sessions</Label>
+      <Label>Bluetooth links</Label>
       {b.peers.length ? (
         b.peers.map((p) => (
           <Card key={p.id}>
@@ -227,20 +217,15 @@ export default function Network() {
               </Text>
               <Label>{p.state}</Label>
             </View>
-            <Body muted>Last observed {age(p.lastSeenAt)}</Body>
+            <Body muted>Last seen {age(p.lastSeenAt)}</Body>
           </Card>
         ))
       ) : (
-        <Body muted>
-          Bluetooth sessions appear here as they are discovered. One phone may
-          create multiple sessions; these counts are not unique people. No
-          connected link means no current route.
-        </Body>
+        <Body muted>No links discovered yet.</Body>
       )}
       <Body muted style={{ fontSize: 12, lineHeight: 19 }}>
-        This view shows local observations. It is not a live map of the whole
-        community. Radio range varies; background and locked-screen relaying are
-        not guaranteed.
+        Local links only. Background and locked-screen relaying are not
+        guaranteed.
       </Body>
     </Screen>
   );

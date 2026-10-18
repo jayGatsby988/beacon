@@ -24,6 +24,7 @@ import {
   ArrowRight,
   Check,
   ChevronRight,
+  Clock3,
   Radio,
   Settings2,
 } from "lucide-react-native";
@@ -56,7 +57,7 @@ export function Body({
 }
 export function Heading({
   children,
-  size = 46,
+  size = 28,
 }: {
   children: ReactNode;
   size?: number;
@@ -64,7 +65,7 @@ export function Heading({
   return (
     <Text
       accessibilityRole="header"
-      style={[styles.heading, { fontSize: size, lineHeight: size * 1.05 }]}
+      style={[styles.heading, { fontSize: size, lineHeight: size * 1.18 }]}
     >
       {children}
     </Text>
@@ -108,7 +109,6 @@ export function TopBar({
   title?: string;
   network?: string;
 }) {
-  const { width, fontScale } = useWindowDimensions();
   return (
     <View style={styles.topBar}>
       {back ? (
@@ -122,10 +122,14 @@ export function TopBar({
         >
           <ArrowLeft size={24} color={c.text} />
         </Pressable>
+      ) : title ? (
+        <Text style={[styles.topTitle, { textAlign: "left", paddingLeft: 6 }]}>
+          {title}
+        </Text>
       ) : (
         <Brand />
       )}
-      {title && <Text style={styles.topTitle}>{title}</Text>}
+      {back && title && <Text style={styles.topTitle}>{title}</Text>}
       {!back && (
         <Pressable
           accessibilityRole="button"
@@ -133,23 +137,32 @@ export function TopBar({
           style={styles.networkChip}
           onPress={() => router.push("/network")}
         >
-          <Radio size={16} color={c.secondary} />
-          {width >= 350 && fontScale < 1.3 && (
-            <Text style={styles.chipText}>{network ?? "Network"}</Text>
-          )}
+          <Radio size={22} color={c.secondary} />
         </Pressable>
       )}
       {back ? (
         <View style={{ width: 48 }} />
       ) : (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Settings"
-          onPress={() => router.push("/settings")}
-          style={styles.iconButton}
-        >
-          <Settings2 color={c.secondary} size={22} />
-        </Pressable>
+        <>
+          {!title && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="History"
+              onPress={() => router.push("/history")}
+              style={styles.iconButton}
+            >
+              <Clock3 color={c.secondary} size={22} />
+            </Pressable>
+          )}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Settings"
+            onPress={() => router.push("/settings")}
+            style={styles.iconButton}
+          >
+            <Settings2 color={c.secondary} size={22} />
+          </Pressable>
+        </>
       )}
     </View>
   );
@@ -174,7 +187,7 @@ export function Screen({
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: 32 + insets.bottom },
+          { paddingBottom: 20 + insets.bottom },
         ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -182,7 +195,6 @@ export function Screen({
         keyboardDismissMode="interactive"
       >
         {children}
-        <View style={{ height: 16 }} />
       </ScrollView>
       {footer}
     </SafeAreaView>
@@ -376,7 +388,7 @@ export function ErrorNotice({ message }: { message?: string }) {
   return (
     <View accessibilityLiveRegion="polite" accessibilityRole="alert">
       <Card>
-        <Label>Action needs attention</Label>
+        <Label>Couldn’t complete action</Label>
         <Body>{message}</Body>
       </Card>
     </View>
@@ -442,18 +454,18 @@ export const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 640,
     alignSelf: "center",
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 32,
-    gap: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 20,
+    gap: 18,
   },
   topBar: {
     width: "100%",
     maxWidth: 680,
     alignSelf: "center",
-    minHeight: 72,
+    minHeight: 60,
     paddingVertical: 6,
-    paddingHorizontal: 18,
+    paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
@@ -461,8 +473,8 @@ export const styles = StyleSheet.create({
   brand: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
   wordmark: {
     fontFamily: fonts.wordmark,
-    fontSize: 27,
-    letterSpacing: 1.1,
+    fontSize: 25,
+    letterSpacing: 0.8,
     color: c.text,
   },
   topTitle: {
@@ -489,18 +501,16 @@ export const styles = StyleSheet.create({
   },
   chipText: { fontSize: 12, color: c.secondary, fontFamily: fonts.medium },
   heading: {
-    fontFamily: fonts.headline,
+    fontFamily: fonts.medium,
     color: c.text,
-    letterSpacing: -1.7,
+    letterSpacing: -0.7,
     flexShrink: 1,
   },
   label: {
     flexShrink: 1,
     fontFamily: fonts.medium,
-    fontSize: 11,
-    letterSpacing: 1.8,
-    textTransform: "uppercase",
-    lineHeight: 17,
+    fontSize: 13,
+    lineHeight: 19,
   },
   body: { fontFamily: fonts.body, fontSize: 16, lineHeight: 24, color: c.text },
   caption: {
@@ -519,17 +529,17 @@ export const styles = StyleSheet.create({
     backgroundColor: c.card,
     borderColor: c.border,
     borderWidth: 1,
-    borderRadius: 20,
-    padding: 22,
-    gap: 16,
+    borderRadius: 16,
+    padding: 18,
+    gap: 12,
   },
   divider: { height: 1, backgroundColor: c.border },
   button: {
     backgroundColor: c.red,
     borderRadius: 16,
-    minHeight: 64,
-    paddingHorizontal: 22,
-    paddingVertical: 17,
+    minHeight: 56,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
@@ -564,11 +574,11 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: c.border,
     borderRadius: 14,
-    padding: 18,
+    padding: 16,
     color: c.text,
     fontFamily: fonts.body,
     fontSize: 16,
-    minHeight: 60,
+    minHeight: 54,
   },
   pill: {
     minHeight: 48,

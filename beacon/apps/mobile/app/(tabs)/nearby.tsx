@@ -1,18 +1,17 @@
 import { Text, View } from "react-native";
-import Svg, { Circle, Path } from "react-native-svg";
+import { Radio } from "lucide-react-native";
 import { router } from "expo-router";
 import { useBeacon } from "../../src/services/BeaconContext";
 import {
-  Body,
   Card,
   Heading,
-  Label,
   Screen,
   TextButton,
   styles,
 } from "../../src/components/ui";
 import { RequestCard } from "../../src/components/RequestCard";
 import { colors as c } from "../../src/theme/tokens";
+
 export default function Nearby() {
   const b = useBeacon();
   const requests = b.requests
@@ -21,95 +20,43 @@ export default function Nearby() {
     )
     .sort((a, b) => b.createdAt - a.createdAt);
   return (
-    <Screen network={b.relayRunning ? "Listening" : "Network"}>
-      <View style={{ gap: 13, paddingTop: 10 }}>
-        <Label>A little closer, together</Label>
-        <Heading>{"Help starts\nnearby."}</Heading>
-        <Body muted>
-          Requests shared by participating phones. Offer what you can, when you
-          can.
-        </Body>
+    <Screen network={b.relayRunning ? "Listening" : "Connection"}>
+      <View style={{ gap: 6 }}>
+        <Heading>Help nearby</Heading>
+        {requests.length > 0 && (
+          <Text style={styles.caption}>
+            {requests.length} active{" "}
+            {requests.length === 1 ? "request" : "requests"} · Latest first
+          </Text>
+        )}
       </View>
-      {requests.length ? (
+      {requests.length > 0 ? (
         <>
-          <View
-            style={{ flexDirection: "row", justifyContent: "space-between" }}
-          >
-            <Label>
-              {requests.length} {requests.length === 1 ? "request" : "requests"}
-            </Label>
-            <Label>Latest first</Label>
-          </View>
-          {requests.map((r) => (
-            <RequestCard key={r.id} request={r} />
+          {requests.map((request) => (
+            <RequestCard key={request.id} request={request} />
           ))}
-          <Body muted>
-            “Nearby” describes the phone network. A relayed request may come
-            from farther away.
-          </Body>
+          <Text style={styles.caption}>
+            Relayed requests may come from farther away.
+          </Text>
         </>
       ) : (
-        <Card style={{ alignItems: "center", paddingVertical: 32, gap: 24 }}>
-          <View accessibilityElementsHidden>
-            <Svg width={220} height={180} viewBox="0 0 220 180">
-              <Circle
-                cx="110"
-                cy="90"
-                r="79"
-                stroke={c.border}
-                strokeWidth="1"
-              />
-              <Circle
-                cx="110"
-                cy="90"
-                r="54"
-                stroke={c.border}
-                strokeWidth="1"
-              />
-              <Circle
-                cx="110"
-                cy="90"
-                r="29"
-                stroke={c.secondary}
-                strokeWidth="1"
-              />
-              <Path d="M110 71 98 101h8l4-10 4 10h8l-12-30Z" fill={c.text} />
-              <Circle
-                cx="110"
-                cy="90"
-                r="79"
-                stroke={c.muted}
-                strokeDasharray="2 490"
-                rotation={-90}
-                origin="110,90"
-                strokeWidth="5"
-              />
-            </Svg>
-          </View>
-          <View style={{ gap: 12, alignItems: "center" }}>
-            <Heading size={30}>Room to be someone’s help.</Heading>
-            <Body muted style={{ textAlign: "center" }}>
-              No requests have reached this phone yet. Keep Beacon open to
-              receive and pass them along.
-            </Body>
-          </View>
-          <View
-            style={{
-              height: 1,
-              backgroundColor: c.border,
-              alignSelf: "stretch",
-            }}
-          />
-          <Text style={[styles.caption, { textAlign: "center" }]}>
+        <Card style={{ gap: 12, paddingVertical: 24 }}>
+          <Radio size={28} color={c.secondary} />
+          <Heading size={24}>No active requests</Heading>
+          <Text style={styles.caption}>
             {b.relayRunning
-              ? "Listening for participating phones."
-              : "Open connection settings to enable nearby sharing."}
+              ? "Keep Beacon open to receive requests."
+              : b.bluetooth === "unsupported"
+                ? "Bluetooth unavailable on this device."
+                : "Enable Bluetooth to receive requests."}
           </Text>
+          {!b.relayRunning && b.bluetooth !== "unsupported" && (
+            <TextButton onPress={() => router.push("/network")}>
+              Connection settings
+            </TextButton>
+          )}
         </Card>
       )}
-      <TextButton onPress={() => router.push("/network")}>
-        See your connection
-      </TextButton>
     </Screen>
   );
 }
