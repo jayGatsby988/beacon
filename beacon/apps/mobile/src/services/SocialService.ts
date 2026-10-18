@@ -89,6 +89,14 @@ export class SocialService {
     this.sessions.delete(peerId);
     void this.refresh().catch(this.options.onError);
   }
+  /** Only sessions whose signed presence/message has established a Beacon identity. */
+  peerNodeId(peerId: string): string | undefined {
+    return this.sessions.get(peerId)?.nodeId;
+  }
+  getPeer(nodeId: string): string | undefined {
+    const peers = [...this.sessions].filter(([, session]) => session.nodeId === nodeId);
+    return peers.find(([id]) => id.startsWith("c:"))?.[0] ?? peers[0]?.[0];
+  }
   reset() {
     this.generation++;
     this.sessions.clear();

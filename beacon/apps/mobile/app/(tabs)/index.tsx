@@ -31,7 +31,6 @@ export default function Home() {
       (r.groupId ?? null) === b.activeGroupId &&
       (r.status === "active" || r.status === "accepted"),
   );
-  const connected = b.peers.filter((p) => p.state === "connected").length;
   const send = () =>
     action.run(async () => {
       const id = await b.sendSOS({
@@ -42,15 +41,7 @@ export default function Home() {
       router.push(`/request/${id}`);
     });
   return (
-    <Screen
-      network={
-        connected
-          ? `${connected} ${connected === 1 ? "link" : "links"}`
-          : b.relayRunning
-            ? "Listening"
-            : "Connection"
-      }
-    >
+    <Screen>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Sharing with ${group?.name || (b.activeGroupId ? "Private group" : "Nearby")}. Change group`}
@@ -164,9 +155,7 @@ export default function Home() {
           </View>
         </View>
       )}
-      {b.relayRunning ? (
-        <Text style={shared.caption}>Keep Beacon open while using it.</Text>
-      ) : (
+      {!b.relayRunning && (
         <View style={{ gap: 2 }}>
           <Text style={shared.caption}>
             {b.bluetooth === "unsupported"
@@ -176,13 +165,11 @@ export default function Home() {
                 : "Enable Bluetooth to share your SOS."}
           </Text>
           <TextButton onPress={() => router.push("/network")}>
-            Connection
+            Bluetooth settings
           </TextButton>
         </View>
       )}
-      <Text style={s.safety}>
-        Community help. Does not call emergency services.
-      </Text>
+      <Text style={s.safety}>Does not call emergency services.</Text>
     </Screen>
   );
 }

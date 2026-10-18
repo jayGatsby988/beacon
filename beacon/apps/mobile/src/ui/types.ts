@@ -104,7 +104,29 @@ export interface IncidentSummary {
     p95: number | null;
   };
 }
+export interface CallView {
+  id: string;
+  peerId: string;
+  peerName: string;
+  direction: "incoming" | "outgoing";
+  status: "ringing" | "connecting" | "active" | "ended" | "failed";
+  muted: boolean;
+  speaker: boolean;
+  /** Epoch milliseconds, set only when the native audio call becomes active. */
+  startedAt?: number;
+  reason?: string;
+}
 export interface BeaconState {
+  callSupported: boolean;
+  callSupportReason?: string;
+  call: CallView | null;
+  startCall(nodeId: string): Promise<void>;
+  acceptCall(callId: string): Promise<void>;
+  declineCall(callId: string): Promise<void>;
+  endCall(callId: string): Promise<void>;
+  setCallMuted(callId: string, muted: boolean): Promise<void>;
+  setCallSpeaker(callId: string, speaker: boolean): Promise<void>;
+  dismissCall(callId: string): Promise<void>;
   loading: boolean;
   setupComplete: boolean;
   displayName: string;

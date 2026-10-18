@@ -31,6 +31,7 @@ import type { BeaconState, EventView, RequestView } from "../ui/types";
 import { MapService } from "./MapService";
 import { SocialRepository } from "../storage/SocialRepository";
 import { SocialService } from "./SocialService";
+import { CallService, type CallView } from "./CallService";
 import {
   hasPendingUpdate,
   validatedCloudUrl,
@@ -66,6 +67,8 @@ export class BeaconService {
   private database?: SQLite.SQLiteDatabase;
   private socialDatabase?: SQLite.SQLiteDatabase;
   private social?: SocialService;
+  private calls?: CallService;
+  private pausingCalls = false;
   private scopes = new Map<
     string,
     {
@@ -96,6 +99,7 @@ export class BeaconService {
   private appActive = true;
   private deviceSubscriptions: { remove(): void }[] = [];
   private timer?: ReturnType<typeof setInterval>;
+  private callTimer?: ReturnType<typeof setInterval>;
   state: BeaconState;
   constructor() {
     this.state = {
@@ -107,6 +111,16 @@ export class BeaconService {
       activeGroupId: null,
       people: [],
       messages: [],
+      callSupported: false,
+      callSupportReason: "Bluetooth calls require a current iPhone build.",
+      call: null,
+      startCall: this.startCall,
+      acceptCall: this.acceptCall,
+      declineCall: this.declineCall,
+      endCall: this.endCall,
+      setCallMuted: this.setCallMuted,
+      setCallSpeaker: this.setCallSpeaker,
+      dismissCall: this.dismissCall,
       createGroup: this.createGroup,
       joinGroup: this.joinGroup,
       selectGroup: this.selectGroup,
@@ -173,6 +187,38 @@ export class BeaconService {
     if (!this.social) throw new Error("Nearby messaging is still opening.");
     return this.social;
   }
+  private callsRequired() {
+    if (!this.calls || !this.state.callSupported)
+      throw new Error(this.state.callSupportReason ?? "Bluetooth calls are unavailable.");
+    return this.calls;
+  }
+  private updateCall = (call: CallView | null) => {
+    this.update({
+      call: call ? {
+        id: call.callId, peerId: call.nodeId, peerName: call.name,
+        direction: call.direction, status: call.state,
+        muted: call.muted, speaker: call.speaker,
+        startedAt: call.startedAt, reason: call.reason,
+      } : null,
+    });
+  };
+  startCall = async (nodeId: string) => {
+    if (this.disposed || this.scopeChanging || this.pausingCalls || !this.appActive || !this.state.relayEnabled)
+      throw new Error("Keep Beacon open with Bluetooth enabled to call.");
+    await this.callsRequired().start(nodeId);
+  };
+  acceptCall = async (callId: string) => {
+    if (this.disposed || this.scopeChanging || this.pausingCalls || !this.appActive || !this.state.relayEnabled) return;
+    await this.callsRequired().accept(callId);
+  };
+  declineCall = async (callId: string) => { await this.calls?.decline(callId); };
+  endCall = async (callId: string) => { await this.calls?.hangup("Call ended", callId); };
+  setCallMuted = async (callId: string, muted: boolean) => { await this.calls?.setMuted(muted, callId); };
+  setCallSpeaker = async (callId: string, speaker: boolean) => { await this.calls?.setSpeaker(speaker, callId); };
+  dismissCall = async (callId: string) => {
+    if (this.state.call?.status === "ended" || this.state.call?.status === "failed")
+      await this.calls?.dismiss(callId);
+  };
   private async sendWire(peerId: string, wire: string, scope: string | null) {
     if (
       this.disposed ||
@@ -227,11 +273,13 @@ export class BeaconService {
     this.disposed = true;
     this.maps?.dispose();
     if (this.timer) clearInterval(this.timer);
+    if (this.callTimer) clearInterval(this.callTimer);
     for (const subscription of this.deviceSubscriptions) subscription.remove();
     this.deviceSubscriptions = [];
     for (const peer of this.state.peers) this.router?.disconnect(peer.id);
     this.social?.reset();
     try {
+      await this.calls?.dispose();
       await BeaconBle.stop();
       await this.router?.flush();
       await this.receiveTail;
@@ -325,6 +373,37 @@ export class BeaconService {
         onError: this.error,
       });
       await this.social.refresh();
+      // Older installed builds and Android retain SOS/messaging without voice methods.
+      if (Platform.OS === "ios" && typeof BeaconBle.getVoiceSupport === "function") {
+        this.calls = new CallService({
+          identity: this.identity,
+          scope: () => this.state.activeGroupId,
+          people: () => this.state.people,
+          getPeer: (nodeId) => this.social?.getPeer(nodeId),
+          peerNodeId: (peerId) => this.social?.peerNodeId(peerId),
+          send: (peerId, wire, scope) => this.sendWire(peerId, wire, scope),
+          native: {
+            getVoiceSupport: () => BeaconBle.getVoiceSupport(),
+            voicePrepare: (options) => BeaconBle.voicePrepare(options),
+            voiceConnect: (options) => BeaconBle.voiceConnect(options),
+            voiceStart: (callId) => BeaconBle.voiceStart(callId),
+            voiceStop: (callId) => BeaconBle.voiceStop(callId),
+            voiceSetMuted: (muted) => BeaconBle.voiceSetMuted(muted),
+            voiceSetSpeaker: (speaker) => BeaconBle.voiceSetSpeaker(speaker),
+          },
+          random,
+          onChange: this.updateCall,
+          onError: this.error,
+        });
+        this.deviceSubscriptions.push(BeaconBle.addListener("onVoice", (event) => {
+          void this.calls?.onVoice(event).catch(this.error);
+        }));
+        // Capability detection is optional and cannot delay the emergency transport.
+        void BeaconBle.getVoiceSupport().then((support) => this.update({
+          callSupported: support.supported,
+          callSupportReason: support.reason,
+        })).catch(() => this.update({ callSupported: false, callSupportReason: "Bluetooth calls are unavailable on this phone." }));
+      }
       this.maps = new MapService(
         this.repository,
         () => this.state.location,
@@ -362,6 +441,8 @@ export class BeaconService {
         AppState.addEventListener("change", (state) => {
           this.appActive = state === "active";
           if (this.appActive) void this.resume().catch(this.error);
+          // Permission dialogs use inactive; only actual backgrounding ends a call.
+          if (state === "background") void this.calls?.hangup("Keep Beacon open to stay on a call.").catch(this.error);
         }),
       );
       this.deviceSubscriptions.push(
@@ -382,6 +463,9 @@ export class BeaconService {
           void this.social?.tick().catch(this.error);
         }
       }, 15_000);
+      this.callTimer = setInterval(() => {
+        if (this.appActive) void this.calls?.tick().catch(this.error);
+      }, 1000);
       this.update({ loading: false });
     } catch (error) {
       this.update({
@@ -461,6 +545,7 @@ export class BeaconService {
         this.recordPeerEvent("peer_connected", e.peerId),
       ]);
     } else if (e.state === "disconnected") {
+      void this.calls?.peerDisconnected(e.peerId).catch(this.error);
       this.mesh().disconnect(e.peerId);
       this.social?.disconnect(e.peerId);
       if (old?.state === "connected")
@@ -512,6 +597,12 @@ export class BeaconService {
         // Public mode never interprets sealed private traffic as ordinary SOS.
         if (!group && (JSON.parse(wire) as { type?: string }).type === "group")
           return;
+        if ((JSON.parse(decoded) as { type?: string }).type === "call") {
+          // Call control is ephemeral and never enters SOS persistence or relaying.
+          if (this.appActive && !this.pausingCalls && this.state.relayEnabled)
+            await this.calls?.receive(peerId, decoded);
+          return;
+        }
         if (await this.social?.receive(peerId, decoded)) return;
         if (scope !== this.state.activeGroupId) return;
         await this.mesh().receive(peerId, decoded);
@@ -795,6 +886,8 @@ export class BeaconService {
     // Bind every saved request to its original scope. Switching never rebroadcasts private packets publicly.
     this.scopeChanging = true;
     try {
+      await this.calls?.hangup("Group changed");
+      await this.calls?.reset();
       await this.receiveTail;
       const next = id
         ? await this.groupRouter(id)
@@ -947,19 +1040,24 @@ export class BeaconService {
     });
   }
   setRelayEnabled = async (enabled: boolean) => {
-    await this.repo().setSetting("relayEnabled", enabled);
-    this.update({ relayEnabled: enabled });
-    if (enabled) await this.resume();
-    else {
-      await BeaconBle.stop();
-      for (const peer of this.state.peers) this.mesh().disconnect(peer.id);
-      this.social?.reset();
-      await this.social?.refresh();
-      this.update({
-        relayRunning: false,
-        peers: this.state.peers.map((p) => ({ ...p, state: "disconnected" })),
-      });
-    }
+    if (this.pausingCalls) return;
+    this.pausingCalls = !enabled;
+    try {
+      if (!enabled) await this.calls?.hangup("Bluetooth paused");
+      await this.repo().setSetting("relayEnabled", enabled);
+      this.update({ relayEnabled: enabled });
+      if (enabled) await this.resume();
+      else {
+        await BeaconBle.stop();
+        for (const peer of this.state.peers) this.mesh().disconnect(peer.id);
+        this.social?.reset();
+        await this.social?.refresh();
+        this.update({
+          relayRunning: false,
+          peers: this.state.peers.map((p) => ({ ...p, state: "disconnected" })),
+        });
+      }
+    } finally { this.pausingCalls = false; }
   };
   saveSettings = async (input: Parameters<BeaconState["saveSettings"]>[0]) => {
     const name = input.displayName.trim().slice(0, 40) || "Participant";

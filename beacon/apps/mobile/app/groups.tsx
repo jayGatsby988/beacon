@@ -9,8 +9,8 @@ import {
   ErrorNotice,
   Field,
   Heading,
-  Pill,
   Screen,
+  TextButton,
   styles,
   useAction,
 } from "../src/components/ui";
@@ -18,7 +18,8 @@ import { colors as c } from "../src/theme/tokens";
 
 export default function Groups() {
   const b = useBeacon();
-  const [mode, setMode] = useState<"create" | "join">("create");
+  const [mode, setMode] = useState<"create" | "join" | null>(null);
+  const [showCode, setShowCode] = useState(false);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const action = useAction();
@@ -36,6 +37,8 @@ export default function Groups() {
       else await b.joinGroup(name.trim(), code.trim());
       setName("");
       setCode("");
+      setMode(null);
+      setShowCode(false);
     });
   return (
     <Screen back title="Groups">
@@ -55,7 +58,7 @@ export default function Groups() {
           <Users color={c.secondary} size={23} />
           <View style={{ flex: 1, gap: 3 }}>
             <Text style={styles.smallTitle}>Nearby</Text>
-            <Text style={styles.caption}>People using Beacon around you</Text>
+            <Text style={styles.caption}>Public</Text>
           </View>
           {b.activeGroupId === null && <Check size={22} color={c.text} />}
         </Pressable>
@@ -83,15 +86,8 @@ export default function Groups() {
       </View>
       {selected && (
         <Card>
-          <Text style={styles.smallTitle}>{selected.name} invite</Text>
-          <Text
-            selectable
-            accessibilityLabel="Group invite code"
-            style={[styles.caption, { color: c.text }]}
-          >
-            {selected.inviteCode}
-          </Text>
-          <Text style={styles.caption}>Share only with your group.</Text>
+          <Text style={styles.smallTitle}>Invite to {selected.name}</Text>
+          <Text style={styles.caption}>Anyone with the invite can join.</Text>
           <Button
             secondary
             busy={action.busy}
@@ -106,58 +102,83 @@ export default function Groups() {
           >
             Share invite
           </Button>
+          <TextButton onPress={() => setShowCode((value) => !value)}>
+            {showCode ? "Hide code" : "Show code"}
+          </TextButton>
+          {showCode && (
+            <Text
+              selectable
+              accessibilityLabel="Group invite code"
+              style={[styles.caption, { color: c.text }]}
+            >
+              {selected.inviteCode}
+            </Text>
+          )}
         </Card>
       )}
+      <ErrorNotice message={action.error} />
       <View style={{ gap: 16, marginTop: 8 }}>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-          <Pill
-            selected={mode === "create"}
-            onPress={() => {
-              if (!action.busy) setMode("create");
-            }}
-          >
-            Create group
-          </Pill>
-          <Pill
-            selected={mode === "join"}
-            onPress={() => {
-              if (!action.busy) setMode("join");
-            }}
-          >
-            Join group
-          </Pill>
-        </View>
-        <Field
-          label="Group name"
-          placeholder="Friends, family, neighbors"
-          value={name}
-          onChangeText={setName}
-          maxLength={40}
-          editable={!action.busy}
-          autoCapitalize="words"
-        />
-        {mode === "join" && (
-          <Field
-            label="Invite code"
-            placeholder="Paste the group’s invite code"
-            value={code}
-            onChangeText={setCode}
-            maxLength={512}
-            autoCapitalize="none"
-            autoCorrect={false}
-            editable={!action.busy}
-            multiline
-            style={{ minHeight: 84 }}
-          />
+        {mode === null ? (
+          <>
+            <Button
+              secondary
+              disabled={action.busy}
+              onPress={() => setMode("join")}
+            >
+              Join a group
+            </Button>
+            <TextButton
+              onPress={() => {
+                if (!action.busy) setMode("create");
+              }}
+            >
+              Create a group
+            </TextButton>
+          </>
+        ) : (
+          <>
+            <Heading size={22}>
+              {mode === "create" ? "Create a group" : "Join a group"}
+            </Heading>
+            <Field
+              label="Group name"
+              placeholder="Friends, family, neighbors"
+              value={name}
+              onChangeText={setName}
+              maxLength={40}
+              editable={!action.busy}
+              autoCapitalize="words"
+            />
+            {mode === "join" && (
+              <Field
+                label="Invite code"
+                placeholder="Paste the group’s invite code"
+                value={code}
+                onChangeText={setCode}
+                maxLength={512}
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!action.busy}
+                multiline
+                style={{ minHeight: 84 }}
+              />
+            )}
+            <Button
+              busy={action.busy}
+              disabled={!name.trim() || (mode === "join" && !code.trim())}
+              onPress={submit}
+            >
+              {mode === "create" ? "Create group" : "Join group"}
+            </Button>
+            <TextButton
+              onPress={() => {
+                if (!action.busy) setMode(null);
+              }}
+            >
+              Cancel
+            </TextButton>
+          </>
         )}
-        <ErrorNotice message={action.error} />
-        <Button
-          busy={action.busy}
-          disabled={!name.trim() || (mode === "join" && !code.trim())}
-          onPress={submit}
-        >
-          {mode === "create" ? "Create group" : "Join group"}
-        </Button>
       </View>
     </Screen>
   );

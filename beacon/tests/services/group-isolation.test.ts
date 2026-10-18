@@ -18,6 +18,7 @@ import {
 } from "../../apps/mobile/src/storage/Repository.js";
 import { SocialRepository } from "../../apps/mobile/src/storage/SocialRepository.js";
 import { SocialService } from "../../apps/mobile/src/services/SocialService.js";
+import { CallService } from "../../apps/mobile/src/services/CallService.js";
 import type { BeaconState } from "../../apps/mobile/src/ui/types.js";
 
 // Actual BeaconService, repositories and protocol; native radio/OS APIs are test doubles.
@@ -85,6 +86,8 @@ interface Write {
   wire: string;
 }
 class World {
+  constructor(private voice = false) {}
+  readonly voiceEvents: { phone: string; action: string; callId?: string }[] = [];
   readonly directory = mkdtempSync(join(tmpdir(), "beacon-group-service-"));
   readonly phones = new Map<string, Phone>();
   readonly secure = new Map<string, Map<string, string>>();
@@ -99,7 +102,10 @@ class World {
     const modules: Record<string, unknown> = {
       "react-native": {
         Platform: { OS: "ios" },
-        AppState: { addEventListener: () => ({ remove() {} }) },
+        AppState: { addEventListener: (_: string, callback: (event: unknown) => void) => {
+          listeners.set("appState", callback);
+          return { remove: () => listeners.delete("appState") };
+        } },
       },
       "expo-sqlite": {
         openDatabaseAsync: async (database: string) => {
@@ -135,6 +141,18 @@ class World {
       zod: { z },
       "@beacon/protocol": protocol,
       "../../modules/beacon-ble": {
+        ...(this.voice ? {
+          getVoiceSupport: async () => ({ supported: true }),
+          voicePrepare: async (options: { callId: string; initiator: boolean }) => {
+            this.voiceEvents.push({ phone: name, action: "prepare", callId: options.callId });
+            return { psm: options.initiator ? 0 : 129 };
+          },
+          voiceConnect: async () => {},
+          voiceStart: async (callId: string) => { this.voiceEvents.push({ phone: name, action: "start", callId }); },
+          voiceStop: async (callId: string) => { this.voiceEvents.push({ phone: name, action: "stop", callId }); },
+          voiceSetMuted: async () => {},
+          voiceSetSpeaker: async () => {},
+        } : {}),
         addListener: (event: string, callback: (event: unknown) => void) => {
           listeners.set(event, callback);
           return { remove: () => listeners.delete(event) };
@@ -158,6 +176,7 @@ class World {
       "../storage/Repository": { Repository },
       "../storage/SocialRepository": { SocialRepository },
       "./SocialService": { SocialService },
+      "./CallService": { CallService },
       "./ServicePolicy": policy,
       "./MapService": {
         MapService: class {
@@ -202,8 +221,8 @@ class World {
     return phone;
   }
   connect(a: string, b: string) {
-    this.phones.get(a)!.emit("onPeer", { peerId: b, state: "connected" });
-    this.phones.get(b)!.emit("onPeer", { peerId: a, state: "connected" });
+    this.phones.get(a)!.emit("onPeer", { peerId: this.voice ? `c:${b}` : b, state: "connected" });
+    this.phones.get(b)!.emit("onPeer", { peerId: this.voice ? `p:${a}` : a, state: "connected" });
   }
   async settle() {
     for (let i = 0; i < 3; i++) {
@@ -224,10 +243,10 @@ class World {
       while (this.queue.length) {
         assert.ok(++delivered < 500, "synthetic radio must settle");
         const packet = this.queue.shift()!;
-        const receiver = this.phones.get(packet.to);
+        const receiver = this.phones.get(this.voice ? packet.to.slice(2) : packet.to);
         assert.ok(receiver);
         receiver.emit("onData", {
-          peerId: packet.from,
+          peerId: this.voice ? `${packet.to.startsWith("c:") ? "p" : "c"}:${packet.from}` : packet.from,
           base64: base64.fromByteArray(new TextEncoder().encode(packet.wire)),
         });
         await receiver.service.receiveTail;
@@ -461,3 +480,53 @@ test(
     }
   },
 );
+
+for (const endBy of ["group", "pause", "background", "disconnect", "dispose"] as const) {
+  test(`Bluetooth call integration: accepted native audio stops on ${endBy} and call controls never enter SQLite`, { timeout: 10000 }, async () => {
+    const world = new World(true);
+    try {
+      const a = await world.open("a");
+      const b = await world.open("b");
+      world.connect("a", "b");
+      await world.drain();
+      assert.equal(a.service.state.callSupported, true);
+      assert.equal(a.service.state.people.find((p) => p.nodeId === b.service.state.nodeId)?.connected, true);
+      await a.service.state.startCall(b.service.state.nodeId);
+      await world.drain();
+      assert.equal(b.service.state.call?.status, "ringing");
+      assert.equal(world.voiceEvents.filter((e) => e.action === "start").length, 0, "ringing never opens a microphone");
+      const callId = a.service.state.call!.id;
+      await b.service.state.acceptCall(b.service.state.call!.id);
+      await world.drain();
+      assert.equal(world.voiceEvents.filter((e) => e.action === "start").length, 0, "accept still awaits authenticated native streams");
+      a.emit("onVoice", { callId, state: "ready" });
+      b.emit("onVoice", { callId, state: "ready" });
+      await world.settle();
+      assert.equal(a.service.state.call?.status, "active");
+      assert.equal(b.service.state.call?.status, "active");
+      assert.equal(world.voiceEvents.filter((e) => e.action === "start").length, 2);
+      a.emit("appState", "inactive");
+      await world.settle();
+      assert.equal(a.service.state.call?.status, "active", "an OS permission prompt is not backgrounding");
+      a.emit("appState", "active");
+      await world.settle();
+      for (const phone of [a, b]) {
+        const repository = new Repository(phone.databases.get("beacon.db")!, phone.service.state.nodeId);
+        assert.equal((await repository.listMessages()).length, 0, "call control is not SOS history");
+        const social = new SocialRepository(phone.databases.get("beacon-social.db")!);
+        assert.equal((await social.packets()).length, 0, "call keys are not saved as chat messages");
+      }
+      if (endBy === "group") await a.service.state.createGroup("Switch while calling");
+      if (endBy === "pause") await a.service.state.setRelayEnabled(false);
+      if (endBy === "background") a.emit("appState", "background");
+      if (endBy === "disconnect") a.emit("onPeer", { peerId: "c:b", state: "disconnected" });
+      if (endBy === "dispose") {
+        await a.service.dispose();
+        world.phones.delete("a");
+        world.queue.length = 0;
+      } else await world.settle();
+      assert.ok(world.voiceEvents.some((e) => e.phone === "a" && e.action === "stop" && e.callId === callId), "native microphone shutdown requested");
+      if (endBy !== "dispose") assert.notEqual(a.service.state.call?.status, "active");
+    } finally { await world.close(); }
+  });
+}

@@ -10,6 +10,7 @@ import * as base64 from "base64-js";
 import { z } from "zod";
 import type { BeaconState } from "../../apps/mobile/src/ui/types.js";
 import { SocialService } from "../../apps/mobile/src/services/SocialService.js";
+import { CallService } from "../../apps/mobile/src/services/CallService.js";
 
 // Execute actual service + protocol. Native APIs are explicit test doubles, not hardware evidence.
 const source = readFileSync(
@@ -156,6 +157,7 @@ function fixture(
       },
     },
     "./SocialService": { SocialService },
+      "./CallService": { CallService },
     "./ServicePolicy": policy,
     "./MapService": {
       MapService: class {

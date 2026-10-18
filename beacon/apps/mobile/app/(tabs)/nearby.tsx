@@ -8,7 +8,6 @@ import {
 import { router } from "expo-router";
 import { useBeacon } from "../../src/services/BeaconContext";
 import {
-  Card,
   Heading,
   Screen,
   TextButton,
@@ -38,7 +37,7 @@ export default function Nearby() {
     )
     .sort((a, z) => z.createdAt - a.createdAt);
   return (
-    <Screen network={b.relayRunning ? "Listening" : "Connection"}>
+    <Screen>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Sharing with ${group?.name || (b.activeGroupId ? "Private group" : "Nearby")}. Change group`}
@@ -55,7 +54,15 @@ export default function Nearby() {
         </Text>
         <ChevronDown size={20} color={c.secondary} />
       </Pressable>
-      <Heading>People</Heading>
+      {requests.length > 0 && (
+        <>
+          <Heading>Help nearby</Heading>
+          {requests.map((request) => (
+            <RequestCard key={request.id} request={request} />
+          ))}
+        </>
+      )}
+      <Heading size={requests.length ? 22 : 28}>People</Heading>
       {people.length ? (
         <View style={s.people}>
           {people.map((person, index) => (
@@ -95,9 +102,9 @@ export default function Nearby() {
           ))}
         </View>
       ) : (
-        <Card>
+        <View style={{ gap: 10, paddingVertical: 16 }}>
           <Text style={styles.smallTitle}>
-            {group ? "No group members connected yet" : "No people found yet"}
+            {group ? "No group members nearby" : "No one nearby yet"}
           </Text>
           <Text style={styles.caption}>
             {b.relayRunning
@@ -112,25 +119,10 @@ export default function Nearby() {
           </Text>
           {!b.relayRunning && b.bluetooth !== "unsupported" && (
             <TextButton onPress={() => router.push("/network")}>
-              Connection settings
+              Bluetooth settings
             </TextButton>
           )}
-        </Card>
-      )}
-      <View style={{ gap: 5, marginTop: 10 }}>
-        <Heading size={24}>Requests</Heading>
-        {requests.length > 0 && (
-          <Text style={styles.caption}>
-            {requests.length} active · Latest first
-          </Text>
-        )}
-      </View>
-      {requests.length ? (
-        requests.map((request) => (
-          <RequestCard key={request.id} request={request} />
-        ))
-      ) : (
-        <Text style={styles.caption}>No active requests.</Text>
+        </View>
       )}
     </Screen>
   );

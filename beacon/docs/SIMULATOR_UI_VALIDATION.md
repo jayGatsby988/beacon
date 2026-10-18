@@ -56,3 +56,26 @@ Xcode 27.1 exposes simulator UI through Device Hub. This pass used the existing 
 This simulator has no Bluetooth transport. New physical nearby-message/group delivery still requires two updated phones. The screenshot shows the simulator's actual Home and its honest Bluetooth-unavailable state.
 
 ![Group-scoped Beacon home, local simulator QA group](screenshots/simulator-group-home.png)
+
+## Simplification and keyboard pass — October 18, 00:24–00:27
+
+Observed through Device Hub on iPhone 17 Pro / iOS 26.0.1 Simulator. A freshly exported production iOS JavaScript bundle and assets were installed into a copy of the existing simulator native app (`tmp/simplified-ui/Beacon.app`), ad-hoc signed, then launched. This is current UI evidence, not native-call evidence.
+
+- Home has one Settings header button, a group selector, immediate Send SOS, collapsed optional details, and an honest Bluetooth-unavailable message. No additional SOS was sent in this pass.
+- Nearby displays one empty state without empty request cards or invented people.
+- Groups displays scope selection and Join/Create actions. Opening Join reveals its fields; the submit button stays disabled for empty required fields. Cancel returns to the compact group screen. The existing local QA group was not modified.
+- Settings exposes name, sharing, History, and Connection status; permission, map, cloud, and advanced controls start collapsed. No Save button appears before an edit.
+- Found and fixed Save changes being covered by the iOS software keyboard. A `KeyboardAvoidingView` now keeps it visibly above the keyboard. Re-exported and reinstalled, then verified the corrected layout with a temporary name draft. Restored the original draft without saving it, returned to Home, and left no new request or changed profile.
+- Settings ESLint and mobile TypeScript checks passed after the correction. Default simulator text size was visually checked; this was not a large Dynamic Type or VoiceOver session.
+
+Screenshots were captured through Device Hub's Screenshot button and copied unchanged from its Desktop output:
+
+| Screen | Evidence |
+| --- | --- |
+| Home | [home.png](screenshots/simplified/home.png) |
+| Nearby | [nearby.png](screenshots/simplified/nearby.png) |
+| Groups | [groups.png](screenshots/simplified/groups.png) |
+| Settings | [settings.png](screenshots/simplified/settings.png) |
+| Corrected keyboard layout | [settings-keyboard.png](screenshots/simplified/settings-keyboard.png) |
+
+No peers, receipts, or call states were injected. No cloud sync or physical-phone interaction occurred. Bluetooth calls are unsupported in this old simulator native build; this pass establishes neither audio transport nor physical-device delivery.

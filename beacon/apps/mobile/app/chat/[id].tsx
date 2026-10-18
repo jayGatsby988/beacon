@@ -14,7 +14,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
-import { ArrowUp } from "lucide-react-native";
+import { ArrowUp, Phone } from "lucide-react-native";
 import { useBeacon } from "../../src/services/BeaconContext";
 import {
   ErrorNotice,
@@ -41,6 +41,7 @@ export default function Chat() {
   const [draft, setDraft] = useState("");
   const [readError, setReadError] = useState<string>();
   const action = useAction();
+  const callAction = useAction();
   const list = useRef<FlatList<DirectMessageView>>(null);
   const insets = useSafeAreaInsets();
   const unread = person?.unreadCount ?? 0;
@@ -80,6 +81,15 @@ export default function Chat() {
     });
   };
   const name = person?.name || "Conversation";
+  const canCall =
+    !!person?.connected && b.callSupported && !b.call && !callAction.busy;
+  const callHint = !b.callSupported
+    ? b.callSupportReason || "Calls require a supported iPhone build."
+    : !person?.connected
+      ? "Connect to this person nearby to call."
+      : b.call
+        ? "Finish the current call first."
+        : "Bluetooth call";
   return (
     <SafeAreaView style={s.page} edges={["top", "left", "right"]}>
       <TopBar back title="Message" />
@@ -88,7 +98,28 @@ export default function Chat() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         <View style={s.header}>
-          <Heading>{name}</Heading>
+          <View style={s.personRow}>
+            <View style={s.personName}>
+              <Heading>{name}</Heading>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Call ${name}`}
+              accessibilityHint={callHint}
+              accessibilityState={{ disabled: !canCall, busy: callAction.busy }}
+              disabled={!canCall}
+              onPress={() => {
+                if (id && canCall) void callAction.run(() => b.startCall(id));
+              }}
+              style={({ pressed }) => [
+                s.call,
+                !canCall && { opacity: 0.4 },
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Phone color={c.text} size={23} />
+            </Pressable>
+          </View>
           <Text style={shared.caption}>
             {person
               ? person.connected
@@ -96,6 +127,9 @@ export default function Chat() {
                 : `Last seen ${age(person.lastSeenAt)}`
               : "This person is not in your current group."}
           </Text>
+          {(!b.callSupported || !person?.connected) && (
+            <Text style={s.callHint}>{callHint}</Text>
+          )}
         </View>
         <FlatList
           ref={list}
@@ -143,7 +177,9 @@ export default function Chat() {
             { paddingBottom: Math.max(insets.bottom, 12) },
           ]}
         >
-          <ErrorNotice message={action.error || readError} />
+          <ErrorNotice
+            message={callAction.error || action.error || readError}
+          />
           <View style={s.composer}>
             <TextInput
               accessibilityLabel="Message"
@@ -199,6 +235,24 @@ const s = StyleSheet.create({
     width: "100%",
     maxWidth: 680,
     alignSelf: "center",
+  },
+  personRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  personName: { flex: 1 },
+  call: {
+    minWidth: 48,
+    minHeight: 48,
+    borderRadius: 24,
+    backgroundColor: c.card,
+    borderWidth: 1,
+    borderColor: c.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  callHint: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    lineHeight: 18,
+    color: c.secondary,
   },
   messages: {
     flexGrow: 1,

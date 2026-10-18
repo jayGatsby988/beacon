@@ -24,8 +24,6 @@ import {
   ArrowRight,
   Check,
   ChevronRight,
-  Clock3,
-  Radio,
   Settings2,
 } from "lucide-react-native";
 import Svg, { Circle, Path } from "react-native-svg";
@@ -103,7 +101,6 @@ export function Brand() {
 export function TopBar({
   back,
   title,
-  network,
 }: {
   back?: boolean;
   title?: string;
@@ -130,30 +127,10 @@ export function TopBar({
         <Brand />
       )}
       {back && title && <Text style={styles.topTitle}>{title}</Text>}
-      {!back && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Open network status${network ? `, ${network}` : ""}`}
-          style={styles.networkChip}
-          onPress={() => router.push("/network")}
-        >
-          <Radio size={22} color={c.secondary} />
-        </Pressable>
-      )}
       {back ? (
         <View style={{ width: 48 }} />
       ) : (
         <>
-          {!title && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="History"
-              onPress={() => router.push("/history")}
-              style={styles.iconButton}
-            >
-              <Clock3 color={c.secondary} size={22} />
-            </Pressable>
-          )}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Settings"

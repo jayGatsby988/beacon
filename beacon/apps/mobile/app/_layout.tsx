@@ -6,6 +6,7 @@ import { InterTight_900Black } from "@expo-google-fonts/inter-tight";
 import { BarlowCondensed_700Bold } from "@expo-google-fonts/barlow-condensed";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { BeaconProvider } from "../src/services/BeaconContext";
+import CallOverlay from "../src/components/CallOverlay";
 import { colors } from "../src/theme/tokens";
 export default function RootLayout() {
   useFonts({
@@ -35,6 +36,7 @@ export default function RootLayout() {
           <Stack.Screen name="groups" />
           <Stack.Screen name="chat/[id]" />
         </Stack>
+        <CallOverlay />
       </BeaconProvider>
     </SafeAreaProvider>
   );
