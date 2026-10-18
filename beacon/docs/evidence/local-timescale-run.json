@@ -10,5 +10,6 @@
   "workspace-check": 0,
   "http-smoke": 0,
   "stop": 0,
+  "finalDatabaseStatus": 3,
   "daemonStopped": true
 }

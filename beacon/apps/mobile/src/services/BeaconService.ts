@@ -28,6 +28,7 @@ import {
   hasPendingUpdate,
   validatedCloudUrl,
   resetCloudSnapshot,
+  locationForSOS,
 } from "./ServicePolicy";
 
 const titles: Record<string, string> = {
@@ -572,36 +573,31 @@ export class BeaconService {
         });
         return;
       }
+      const report = locationForSOS({
+        source: "device",
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy ?? undefined,
+        capturedAt: position.timestamp,
+      });
       this.update({
-        location: {
-          source: "device",
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy: position.coords.accuracy ?? undefined,
-          capturedAt: position.timestamp,
-        },
+        location:
+          report.source === "device"
+            ? {
+                source: "device",
+                latitude: report.latitude,
+                longitude: report.longitude,
+                accuracy: report.accuracyM,
+                capturedAt: report.capturedAt,
+              }
+            : { source: "unavailable" },
       });
     } finally {
       if (timer) clearTimeout(timer);
     }
   }
   private currentLocation(place?: string): ProtocolLocation {
-    if (place?.trim())
-      return {
-        source: "manual_description",
-        description: place.trim().slice(0, 160),
-        capturedAt: Date.now(),
-      };
-    const l = this.state.location;
-    if (l.latitude != null && l.longitude != null && l.capturedAt)
-      return {
-        source: "device",
-        latitude: l.latitude,
-        longitude: l.longitude,
-        accuracyM: l.accuracy,
-        capturedAt: l.capturedAt,
-      };
-    return { source: "unavailable", capturedAt: Date.now() };
+    return locationForSOS(this.state.location, place);
   }
   private serialize<T>(fn: () => Promise<T>): Promise<T> {
     if (this.disposed || this.actionCount >= 16)

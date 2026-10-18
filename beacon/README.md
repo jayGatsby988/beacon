@@ -45,7 +45,15 @@ cd ..
 npx expo run:ios --configuration Release
 ```
 
-For a physical iPhone, open `ios/Beacon.xcworkspace`, select your own development team in Signing & Capabilities, connect and trust the phone, enable Developer Mode, then build. No Apple credential is included in this repository. This workspace's attempted physical install was blocked by missing account/provisioning setup; a certificate alone was insufficient.
+For a physical iPhone, open `ios/Beacon.xcworkspace`, select your own development team in Signing & Capabilities, connect and trust the phone, enable Developer Mode, then build. No Apple credential is included in this repository. After the user signed into Xcode, a Personal Team development-signed Release build installed successfully on the connected iPhone 17 Pro Max. Launch requires the user to trust the development profile in iPhone Settings → General → VPN & Device Management.
+
+Beacon uses Expo with custom native Bluetooth and MapLibre modules. **Expo Go cannot run it.** The installed Release app includes its JavaScript and opens from its own icon without a development server. To reproduce the device build from this directory with your existing Xcode account:
+
+```sh
+bash scripts/build-ios-device.sh --device YOUR_DEVICE_UDID --team YOUR_TEAM_ID
+xcrun devicectl device install app --device YOUR_DEVICE_UDID \
+  tmp/DerivedData/Build/Products/Release-iphoneos/Beacon.app
+```
 
 Two narrow Expo SDK 54 shell-path fixes are committed so a checkout containing spaces can build: an idempotent postinstall patch for Expo Constants and a config plugin for the React Native bundle phase. Both quote script paths; they do not bypass signing or security checks.
 
@@ -65,9 +73,9 @@ Local SOS and BLE do not require any backend, online account or map key. Leave c
 
 ## Verification and boundaries
 
-The latest measured build, startup and interaction results are recorded in [VALIDATION.md](docs/VALIDATION.md). The automated suite passes **48 tests with the real local Timescale test database configured**. A normal run without a database URL passes 47 and explicitly skips that one integration test. Both app TypeScript checks and ESLint pass. Swift and Kotlin framing suites each pass 28 payload/MTU round trips and malformed/order/timeout/capacity/recovery cases. Three-node application tests use explicitly synthetic radio links and actual disk-backed SQLite; they are not evidence of physical radio behavior.
+The latest measured build, startup and interaction results are recorded in [VALIDATION.md](docs/VALIDATION.md). The automated suite passes **50 tests with the real local Timescale test database configured**. A normal run without a database URL passes 49 and explicitly skips that one integration test. Both app TypeScript checks and ESLint pass. Swift and Kotlin framing suites each pass 28 payload/MTU round trips and malformed/order/timeout/capacity/recovery cases. Three-node application tests use explicitly synthetic radio links and actual disk-backed SQLite; they are not evidence of physical radio behavior.
 
-Native Android and iOS simulator compilation passed. The replacement Android APK includes the SVG deduplication and final map fixes; physical Android startup remains untested. Only one iPhone was available, with installation blocked by signing setup. **Real three-phone BLE relaying, Android/iPhone interoperability, hosted cloud deployment, and production performance remain unverified. Local Timescale migrations and authenticated HTTP ingestion/replay were verified.** Unresolved dependency advisories and native-intent mitigations are recorded in [DEPENDENCY_AUDIT.md](docs/DEPENDENCY_AUDIT.md).
+Native Android and iOS compilation passed. The replacement Android APK includes the SVG deduplication, map fixes and native location normalization; physical Android startup remains untested. The signed app installed and launched on the connected iPhone 17 Pro Max; its process was observed running afterward. Actual simulator interaction verified SOS creation, native map display, and cancellation. **Real three-phone BLE relaying, Android/iPhone interoperability, hosted cloud deployment, and production performance remain unverified. Local Timescale migrations and authenticated HTTP ingestion/replay were verified.** Unresolved dependency advisories and native-intent mitigations are recorded in [DEPENDENCY_AUDIT.md](docs/DEPENDENCY_AUDIT.md).
 
 Hosted CI is manual-only to avoid consuming private-repository runner minutes automatically. All local checks run without paid services.
 
@@ -76,6 +84,7 @@ Hosted CI is manual-only to avoid consuming private-repository runner minutes au
 - [Architecture](docs/ARCHITECTURE.md) · [Protocol](docs/PROTOCOL.md) · [Native transport](docs/NATIVE_TRANSPORT.md)
 - [Design](docs/DESIGN.md) · [Brand and logo](docs/BRAND.md) · [Map license](apps/mobile/assets/maps/LICENSE.md)
 - [Native build evidence](docs/NATIVE_VALIDATION.md) · [Security review](docs/SECURITY_REVIEW.md)
+- [Simulator UI checks and map screenshot](docs/SIMULATOR_UI_VALIDATION.md)
 - [Local Timescale evidence and reproduction](docs/LOCAL_TIMESCALE_VALIDATION.md)
 - [Device acceptance](docs/DEVICE_ACCEPTANCE.md) · [Release checklist](docs/RELEASE_CHECKLIST.md)
 

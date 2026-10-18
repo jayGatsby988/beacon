@@ -3,8 +3,89 @@ import assert from "node:assert/strict";
 import {
   hasPendingUpdate,
   validatedCloudUrl,
+  locationForSOS,
 } from "../../apps/mobile/src/services/ServicePolicy.js";
-import type { RequestState } from "../../packages/protocol/src/index.js";
+import {
+  createIdentity,
+  createRequestId,
+  createEnvelope,
+  type RequestState,
+} from "../../packages/protocol/src/index.js";
+import { randomBytes } from "node:crypto";
+
+test("fractional native location timestamps can be signed into an SOS without blocking it", () => {
+  const now = 1_800_000_000_000;
+  const identity = createIdentity(randomBytes);
+  const location = locationForSOS(
+    {
+      source: "device",
+      latitude: 47.655,
+      longitude: -122.306,
+      accuracy: 5.25,
+      capturedAt: now - 12.75,
+    },
+    undefined,
+    now,
+  );
+  const message = createEnvelope(
+    identity,
+    {
+      type: "sos",
+      requestId: createRequestId(identity, randomBytes),
+      destination: "community",
+      payload: {
+        category: "other",
+        displayName: "Synthetic",
+        note: "",
+        location,
+      },
+    },
+    now,
+    randomBytes,
+  );
+  assert.equal(message.payload.location.capturedAt, now - 13);
+  assert.equal(message.payload.location.accuracyM, 5.25);
+  assert.equal(message.payload.location.source, "device");
+});
+
+test("invalid optional device reports fall back without blocking SOS and manual descriptions still win", () => {
+  const now = 1_800_000_000_000;
+  const valid = {
+    source: "device" as const,
+    latitude: 47.655,
+    longitude: -122.306,
+    capturedAt: now - 100,
+  };
+  for (const invalid of [
+    { latitude: NaN },
+    { latitude: 91 },
+    { longitude: undefined },
+    { capturedAt: NaN },
+    { capturedAt: Infinity },
+    { capturedAt: -0.5 },
+    { capturedAt: Number.MAX_SAFE_INTEGER + 1 },
+    { capturedAt: undefined },
+    { source: "unavailable" as const },
+  ]) {
+    assert.deepEqual(locationForSOS({ ...valid, ...invalid }, undefined, now), {
+      source: "unavailable",
+      capturedAt: now,
+    });
+  }
+  for (const accuracy of [-1, Infinity, NaN, 100_001]) {
+    const result = locationForSOS({ ...valid, accuracy }, undefined, now);
+    assert.equal(result.source, "device");
+    assert.equal(result.accuracyM, undefined);
+  }
+  assert.deepEqual(
+    locationForSOS({ source: "unavailable" }, "  North entrance  ", now),
+    {
+      source: "manual_description",
+      description: "North entrance",
+      capturedAt: now,
+    },
+  );
+});
 
 const request: RequestState = {
   id: "request",
@@ -77,9 +158,8 @@ test("sync destinations reject plaintext transport, embedded credentials and acc
 });
 
 test("changing cloud connection discards previous report provenance while keeping the local queue count", async () => {
-  const { resetCloudSnapshot } = await import(
-    "../../apps/mobile/src/services/ServicePolicy.js"
-  );
+  const { resetCloudSnapshot } =
+    await import("../../apps/mobile/src/services/ServicePolicy.js");
   const old = {
     status: "error" as const,
     pendingCount: 7,

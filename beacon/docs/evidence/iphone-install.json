@@ -1,0 +1,15 @@
+{
+  "scope": "Local Personal Team Release build; actual connected iPhone 17 Pro Max",
+  "bundleIdentifier": "org.beacon.community.dev",
+  "installed": true,
+  "signatureVerified": true,
+  "launchSucceeded": true,
+  "launchAtUTC": "2026-10-18T04:41:34Z",
+  "processObservedAtUTC": "2026-10-18T04:41:53Z",
+  "mainJsBundleSha256": "0016a020793c94e47f037a01be89c6d32a67b2d98ed64b16e601d93072c75526",
+  "developmentProfileExpiresAtUTC": "2026-10-25T04:33:50Z",
+  "initialLaunchFailure": "iOS security/profile-trust denial; subsequent launch succeeded",
+  "physicalScreenInteractionsVerified": false,
+  "physicalBleTransferVerified": false,
+  "paidResourcesCreated": false
+}

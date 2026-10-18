@@ -1,5 +1,42 @@
-import type { BeaconState } from "../ui/types";
-import type { RequestState } from "@beacon/protocol";
+import type { BeaconState, LocationReport } from "../ui/types";
+import {
+  LocationSchema,
+  type RequestState,
+  type LocationReport as ProtocolLocation,
+} from "@beacon/protocol";
+
+/** Native timestamps may contain fractional milliseconds. Optional location must never block SOS. */
+export function locationForSOS(
+  location: LocationReport,
+  place?: string,
+  now = Date.now(),
+): ProtocolLocation {
+  if (place?.trim()) {
+    return {
+      source: "manual_description",
+      description: place.trim().slice(0, 160),
+      capturedAt: now,
+    };
+  }
+  const accuracy = location.accuracy;
+  const candidate = LocationSchema.safeParse({
+    source: "device",
+    latitude: location.latitude,
+    longitude: location.longitude,
+    accuracyM:
+      accuracy != null &&
+      Number.isFinite(accuracy) &&
+      accuracy >= 0 &&
+      accuracy <= 100_000
+        ? accuracy
+        : undefined,
+    capturedAt:
+      location.capturedAt == null ? undefined : Math.floor(location.capturedAt),
+  });
+  return location.source === "device" && candidate.success
+    ? candidate.data
+    : { source: "unavailable", capturedAt: now };
+}
 
 /** Assignment receipts acknowledge one acceptance only; they never acknowledge a later closure. */
 export function hasPendingUpdate(

@@ -14,7 +14,7 @@ python3 scripts/test-native-framing.py --language all
 
 The workspace script requires Node 24, then runs typechecks, all test suites, and lint if defined. Native framing checks compile the actual source into a temporary directory and remove it afterward. Swift requires Xcode tools on macOS. Kotlin uses `KOTLINC`/`kotlinc` when supplied or the exact Kotlin 2.1.20 compiler dependencies already downloaded by the documented Android build. It does not install a compiler.
 
-The repository-root workflow [`.github/workflows/beacon-ci.yml`](../../.github/workflows/beacon-ci.yml) runs Node 24 with `npm ci` on Ubuntu and Swift framing on macOS. Both jobs execute inside `beacon/`. It is **manual-only** (`workflow_dispatch`): pushes and pull requests do not launch hosted jobs. Actions are pinned to official release commit hashes and receive read-only repository permissions. CI has no deployment credentials or release step. Local execution passed typechecks, lint, and 48 tests with a real isolated Timescale database (zero skipped). Without a test database URL, 47 pass and that one database test is explicitly skipped. Both Swift and Kotlin framing suites also passed through the new runner. The hosted workflow has not been run. Local checks do not use paid hosted runners. A maintainer may manually run hosted checks only within the account’s existing Actions budget; do not enable paid capacity or trigger a run without confirming that budget. Record a successful hosted result if a manual run is performed.
+The repository-root workflow [`.github/workflows/beacon-ci.yml`](../../.github/workflows/beacon-ci.yml) runs Node 24 with `npm ci` on Ubuntu and Swift framing on macOS. Both jobs execute inside `beacon/`. It is **manual-only** (`workflow_dispatch`): pushes and pull requests do not launch hosted jobs. Actions are pinned to official release commit hashes and receive read-only repository permissions. CI has no deployment credentials or release step. Local execution passed typechecks, lint, and 50 tests with a real isolated Timescale database (zero skipped). Without a test database URL, 49 pass and that one database test is explicitly skipped. Both Swift and Kotlin framing suites also passed through the new runner. The hosted workflow has not been run. Local checks do not use paid hosted runners. A maintainer may manually run hosted checks only within the account’s existing Actions budget; do not enable paid capacity or trigger a run without confirming that budget. Record a successful hosted result if a manual run is performed.
 
 ## Android test artifact
 
@@ -45,9 +45,10 @@ The verifier checks ZIP integrity, configured package name, a verified APK v2-or
 ## iOS gate
 
 - [x] Swift framing tests and CoreBluetooth source/API typecheck pass.
-- [x] Full iOS simulator release build passes after dependency deduplication. The signed app opened setup and completed location permission interaction; the Mac locked before further UI checks. See [VALIDATION.md](VALIDATION.md).
-- [ ] **Physical installation blocker:** Xcode has no usable signed-in Apple developer account/provisioning setup for this app. An installed signing certificate alone did not permit the attempted device build. The user must complete Xcode account/provisioning setup; no paid enrollment has been authorized.
-- [ ] Install an embedded-bundle build on the actual phone after signing succeeds, then execute permission, offline map, BLE, restart, and three-phone acceptance cases.
+- [x] Full iOS simulator release build passes after dependency deduplication and native location normalization. Resumed UI checks verified setup, SOS creation, visible native UW map and cancellation. See [VALIDATION.md](VALIDATION.md).
+- [x] After the user signed into Xcode, a Personal Team development-signed Release build with embedded JavaScript installed on the connected iPhone 17 Pro Max. No paid enrollment was used. `scripts/build-ios-device.sh` reproduces the build with explicit device/team inputs.
+- [x] Launch on the phone succeeded after the initial security/profile-trust denial; its process was observed running 19 seconds later.
+- [ ] Execute physical permission, offline map, BLE, restart, and three-phone acceptance cases. Installation and process launch do not establish these behaviors.
 
 A simulator cannot validate Bluetooth radio behavior. Declaring background modes does not establish reliable background relaying; retain the foreground limitation until measured otherwise.
 

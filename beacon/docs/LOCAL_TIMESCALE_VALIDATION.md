@@ -1,6 +1,6 @@
 # Real local Timescale validation
 
-On October 17, 2026 at 8:28 PM Pacific (October 18 at 03:28 UTC), Beacon passed its complete workspace checks and HTTP smoke against **PostgreSQL 18.6 (Homebrew) with TimescaleDB 2.30.2** on this Apple Silicon Mac. Node was 24.19.0. This was a real Timescale extension, hypertable, continuous aggregate, refresh policy, and explicit historical refresh—not a PostgreSQL-only substitute or mocked repository.
+On October 17, 2026 at 9:37 PM Pacific (October 18 at 04:37 UTC; HTTP evidence timestamp `2026-10-18T04:37:20.485Z`), Beacon passed its complete workspace checks and HTTP smoke against **PostgreSQL 18.6 (Homebrew) with TimescaleDB 2.30.2** on this Apple Silicon Mac. Node was 24.19.0. This was a real Timescale extension, hypertable, continuous aggregate, refresh policy, and explicit historical refresh—not a PostgreSQL-only substitute or mocked repository.
 
 No accounts, cloud resources, paid services, or spending were involved. The fixtures were generated synthetic identities, signatures, device tokens, and incident observations. The isolated database listened only on loopback port 55432 and was stopped after testing. Its private data directory was removed. No persistent Homebrew database service was started.
 
@@ -9,7 +9,7 @@ No accounts, cloud resources, paid services, or spending were involved. The fixt
 | Check | Result |
 | --- | --- |
 | Migrate fresh database, then repeat migration | Both passed |
-| Complete workspace checks | **48 tests passed, 0 failed, 0 skipped**; TypeScript and ESLint passed |
+| Complete workspace checks | **50 tests passed, 0 failed, 0 skipped**; TypeScript and ESLint passed |
 | Real database integration test | Concurrent duplicate ingestion, transactional rollback, conflicting content, replay, and historical aggregate refresh passed |
 | HTTP health / readiness | 200 / 200 |
 | Signed SOS + endpoint receipt upload | 2 accepted; retry returned 2 duplicates |
@@ -18,6 +18,8 @@ No accounts, cloud resources, paid services, or spending were involved. The fixt
 | Authenticated replay and summary | 2 events; 1 request; 1 request with a verified endpoint receipt |
 | 30-day-old events, outside rolling refresh window | Explicit refresh materialized 2 observations; queue cleared |
 | Cleanup | Private daemon stopped; data directory removed; no port 55432 listener remained |
+
+The suite includes regressions for fractional-millisecond native location timestamps and malformed optional location reports: timestamps are normalized to protocol integers, invalid accuracy is omitted, and invalid optional coordinates/time fall back to unavailable without blocking SOS. These are application tests, not physical-device runtime evidence. Without `BEACON_TEST_DATABASE_URL`, the default suite passes 49 tests and explicitly skips the one database integration test.
 
 Evidence files: [full workspace output](evidence/local-timescale-workspace-check.txt), [HTTP counts and statuses](evidence/local-timescale-http.json), and [harness step results and shutdown](evidence/local-timescale-run.json). No bearer tokens or database passwords are recorded in those evidence files.
 
@@ -38,7 +40,7 @@ brew install --skip-post-install timescale/tap/timescaledb --without-timescaledb
 /opt/homebrew/opt/timescaledb/bin/timescaledb_move.sh
 ```
 
-The official extension-copy script was inspected before execution. No `timescaledb-tune`, `brew services start`, `sudo`, shell-profile modification, or security-policy change was used. The installation added PostgreSQL, Timescale, and their free local build/runtime dependencies, well below the 2 GiB task budget. Homebrew also upgraded readline and xz as dependencies, retaining their previous versions. Although the top-level post-install was skipped, PostgreSQL's dependency installation initialized an unused default cluster at `/opt/homebrew/var/postgresql@18`; it was never started or used for these checks. The validation cluster was separate. Existing personal databases were not modified. Free disk space after validation was approximately 5.5 GiB.
+The official extension-copy script was inspected before execution. No `timescaledb-tune`, `brew services start`, `sudo`, shell-profile modification, or security-policy change was used. The installation added PostgreSQL, Timescale, and their free local build/runtime dependencies, well below the 2 GiB task budget. Homebrew also upgraded readline and xz as dependencies, retaining their previous versions. Although the top-level post-install was skipped, PostgreSQL's dependency installation initialized an unused default cluster at `/opt/homebrew/var/postgresql@18`; it was never started or used for these checks. The validation cluster was separate. Existing personal databases were not modified. Free disk space after the latest validation was approximately 3.1 GiB.
 
 ## Reproduce and stop
 
