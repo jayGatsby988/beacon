@@ -6,6 +6,8 @@ Implementation, automated checks, native compilation, and physical acceptance ar
 
 After the final recheck, the user connected Darshan's iPhone 17 Pro, then Pravanram's iPhone 17 Pro Max. The same final signed build installed and launched successfully on each, and subsequent process queries confirmed Beacon still running. Vaibhav's phone remained unavailable. The second phone's read-only database snapshot had intact request/social databases but Nearby sharing disabled; the user was asked to enable it through the app. This supersedes the installation blocker below, but physical direct-message exchange and private-group delivery between the updated phones remain unverified. See [the installation record](NEARBY_GROUPS.md).
 
+After enabling sharing, a fresh intact snapshot confirmed Nearby mode, a newly discovered contact, and recent Bluetooth connection/forwarding events at 23:55 Pacific. No direct-message packets were stored in that snapshot. Discovery is now physically observed on the updated app; message exchange still needs the requested send/reply check.
+
 ## Final recheck — October 17, 23:45 local
 
 The complete workspace passes **86 tests, zero failures, zero skips**, using real local PostgreSQL 18.6 / TimescaleDB 2.30.2. Mobile/API TypeScript and ESLint pass. Migrations and HTTP checks also pass, including signed upload deduplication, incident access controls, revoked credentials, replay, and late aggregate refresh. The isolated database was stopped and its temporary data and password file removed afterward. Sanitized output is in [the workspace evidence](evidence/local-timescale-workspace-check.txt) and [HTTP evidence](evidence/local-timescale-http.json).
