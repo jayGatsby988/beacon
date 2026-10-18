@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Linking, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { Alert, Linking, Pressable, StyleSheet, Switch, Text, View, useWindowDimensions } from "react-native";
 import { Bluetooth, ChevronDown, ChevronRight, Clock3, LockKeyhole, Map, Radio, type LucideIcon } from "lucide-react-native";
 import { router } from "expo-router";
 import { useBeacon } from "../src/services/BeaconContext";
@@ -8,6 +8,8 @@ import { colors as c, fonts } from "../src/theme/tokens";
 
 export default function Settings() {
   const b = useBeacon();
+  const { width, fontScale } = useWindowDimensions();
+  const stacked = width < 350 || fontScale >= 1.4;
   const [name, setName] = useState(b.displayName);
   const [editing, setEditing] = useState(false);
   const [advanced, setAdvanced] = useState(false);
@@ -16,9 +18,9 @@ export default function Settings() {
   const initials = b.displayName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "B";
   return (
     <Screen back title="Profile & settings">
-      <View style={s.identity}>
-        <View style={s.avatar}><Text style={s.initials}>{initials}</Text></View>
-        <View style={s.copy}>
+      <View style={[s.identity, stacked && { flexDirection: "column", alignItems: "flex-start" }]}>
+        <View style={s.avatar}><Text maxFontSizeMultiplier={1.4} style={s.initials}>{initials}</Text></View>
+        <View style={[s.copy, stacked && { flex: 0, width: "100%" }]}>
           <Text style={s.name}>{b.displayName || "Participant"}</Text>
           <Text style={styles.caption}>Your name on Beacon</Text>
         </View>
@@ -48,7 +50,7 @@ export default function Settings() {
             <Text style={styles.smallTitle}>Nearby sharing</Text>
             <Body muted style={s.detail}>{b.relayEnabled ? "Send, receive and relay while open." : "Paused. Saved messages stay here."}</Body>
           </View>
-          <Switch accessibilityLabel="Nearby sharing" value={b.relayEnabled} disabled={action.busy} onValueChange={(value) => action.run(() => b.setRelayEnabled(value))} trackColor={{ false: c.border, true: c.secondary }} thumbColor={c.text} />
+          <Switch accessibilityLabel="Nearby sharing" value={b.relayEnabled} disabled={action.busy} onValueChange={(value) => action.run(() => b.setRelayEnabled(value))} trackColor={{ false: c.border, true: c.text }} thumbColor={c.onAction} />
         </View>
         <SettingsLink icon={Bluetooth} title="Phone permissions" detail={b.bluetooth === "poweredOn" ? "Bluetooth is ready" : b.bluetooth === "unsupported" ? "Bluetooth unavailable in this build" : "Check Bluetooth and location access"} last plain disabled={action.busy} onPress={() => action.run(() => Linking.openSettings())} />
       </Card>

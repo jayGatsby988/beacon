@@ -45,7 +45,7 @@ function helpScreen(getState: () => any, requestId?: string) {
     if (name === "expo-router")
       return { router: { push: (path: typeof routes[number]) => routes.push(path), replace: (path: typeof routes[number]) => routes.push(path) }, useLocalSearchParams: () => ({ id: requestId }) };
     if (name === "react-native-svg") return new Proxy({ __esModule: true }, { get: (_target, key) => key === "__esModule" ? true : () => null });
-    if (name.endsWith("/components/ConnectionControl")) return connection;
+    if (name === "./ConnectionControl" || name.endsWith("/components/ConnectionControl")) return connection;
     if (name.endsWith("/components/LocationCard")) return { LocationCard: () => null };
     if (name === "lucide-react-native")
       return new Proxy({}, { get: () => () => null });
@@ -57,7 +57,7 @@ function helpScreen(getState: () => any, requestId?: string) {
     if (name === "react-native-safe-area-context") return { useSafeAreaInsets: () => ({ bottom: 0 }) };
     if (name === "./ui" || name.endsWith("/components/ui"))
       return {
-        Screen: container,
+        Screen: ({ children, main, showConnection }: any) => React.createElement("div", null, main ? React.createElement(header.default, { brand: text({ children: "Beacon" }), showConnection }) : null, children),
         Heading: text,
         Body: text,
         Button: button,
@@ -97,6 +97,7 @@ function helpScreen(getState: () => any, requestId?: string) {
     return module.exports;
   };
   const connection = load("../../apps/mobile/src/components/ConnectionControl.tsx");
+  const header = load("../../apps/mobile/src/components/MainHeader.tsx");
   const audience = load("../../apps/mobile/src/components/AudiencePicker.tsx");
   const cards = load("../../apps/mobile/src/components/RequestCard.tsx");
   const Screen = load(requestId ? "../../apps/mobile/app/request/[id].tsx" : "../../apps/mobile/app/(tabs)/index.tsx").default;
@@ -309,15 +310,13 @@ test("request details never expose accept actions for another requester or a clo
 });
 
 
-test("Home shortcuts explicitly choose the People and Map views", () => {
+test("Home header opens Messages and Profile directly without additional tiles", () => {
   const ui = helpScreen(() => state([]));
   ui.render();
-  ui.press("Find and message nearby people");
-  ui.press("Open nearby map");
-  assert.deepEqual(JSON.parse(JSON.stringify(ui.routes)), [
-    { pathname: "/(tabs)/nearby", params: { view: "people" } },
-    { pathname: "/(tabs)/nearby", params: { view: "map" } },
-  ]);
+  ui.press("Messages");
+  ui.press("Profile and settings");
+  assert.deepEqual(ui.routes, ["/messages", "/settings"]);
+  assert.equal(ui.hasAction("Open nearby map"), false);
 });
 
 test("connection recovery resumes sharing and discovers people directly", async () => {
@@ -376,7 +375,7 @@ test("connection counts and Details respect current scope, connection state, and
   b.activeGroupId = "group-a";
   const privateHtml = ui.render();
   assert.equal(ui.hasAction("Details: 2 people connected"), true);
-  assert.match(privateHtml, /2 connected/);
+  assert.match(privateHtml, /2 people connected/);
   assert.equal(ui.hasAction("Details: 1 person connected"), false);
   b.bluetooth = "unsupported";
   ui.render();
