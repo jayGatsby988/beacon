@@ -93,3 +93,23 @@ Fresh current visual code was exported into the same old simulator native app. A
 - [Current Settings with keyboard](screenshots/simplified/settings-core-keyboard.png)
 
 All changed UI files passed scoped ESLint; mobile TypeScript passed after the automatic acknowledgment addition. No production source edits followed this freeze.
+
+## Nearby map and invite flow — October 18, approximately 00:54–00:55
+
+Current production JavaScript and assets were exported into `tmp/simplified-ui/Beacon.app`, ad-hoc signed, installed, and launched on the existing iPhone 17 Pro / iOS 26.0.1 Simulator. This uses the older compatible simulator native binary; physical-device builds and Bluetooth testing are separate.
+
+- Nearby rendered the actual OpenFreeMap Positron map with readable UW campus street/place labels. No person pins were present. The map accurately said “No shared positions yet” and “Online map · area overview.” The native attribution control was visible; opening its contents was not verified.
+- Share my location was visibly off, with “With everyone nearby” identifying its audience. It was not enabled during this pass.
+- The existing simulator reported Bluetooth unavailable and disabled Find people. No discovery, Bluetooth call, position receipt, or selected-person Message action is claimed by this visual pass.
+- Tapping the group chip opened Groups. Join showed only the invite-code field, with its empty submit disabled. Cancel and Back returned to Nearby. No group, profile, or scope was changed; the visible QA group predates this pass.
+- Native map-drag automation returned a no-windows-available error despite subsequent accessibility reads working. Map panning and recenter behavior were therefore not verified. No fake contacts, positions, receipts, or requests were inserted.
+- Scoped ESLint and mobile TypeScript passed. Freshness filtering uses the protocol's 120-second lifetime and five-second future-clock tolerance; age labels clamp negative age to zero. Active help requests remain above the map in the UI structure, but none were active for these screenshots.
+
+The public online style was checked against [OpenFreeMap's official quick start](https://openfreemap.org/quick_start/) and fetched successfully before use. The component retains the bundled UW fallback; this pass observed the online path, not a forced network-failure transition.
+
+Screenshots were saved with Device Hub's native Screenshot control, copied unchanged from Desktop, and visually inspected:
+
+- [Nearby map, sharing off](screenshots/simplified/nearby-map.png)
+- [Invite-only join form](screenshots/simplified/group-invite-only.png)
+
+No production UI source changed after the final Positron style selection. The app was left on Nearby with sharing off.

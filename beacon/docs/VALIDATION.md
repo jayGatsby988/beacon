@@ -2,6 +2,12 @@
 
 Implementation, automated checks, native compilation, and physical acceptance are separate evidence. This document does not infer radio delivery or rescue from a build passing.
 
+## Nearby map and discovery refresh — October 18
+
+The combined workspace check passes **132 tests, zero failures, zero skips**, with TypeScript, lint, and actual local PostgreSQL/Timescale HTTP checks. New protocol/service regressions cover location signature/scope validation, original-fix expiry, replay/withdrawal ordering, disconnect cleanup, opt-out during an in-flight multi-peer send, explicit permission, background/group cancellation, no location persistence, and preserving SOS while refreshing discovery. Test coordinates and radio/OS APIs are synthetic; no physical location exchange is inferred.
+
+The actual Android BeaconBle Kotlin module compiles successfully. A retained test against the production scan pacing policy covers retry boundaries, ordinary errors, and the 30-second rate-limit backoff. The signed iOS Release build passes strict signature verification and contains a JavaScript bundle newer than every relevant source. It installed and launched on both Pravanram’s iPhone 17 Pro Max and Vaibhav’s iPhone 18 Pro Max; subsequent process checks confirmed both running. Initial iOS verification blocked the first launch on the iPhone 17 Pro Max, and a later launch succeeded. Simulator checks verified the readable online map, sharing off, invite-only joining, and Cancel/Back navigation. Map gestures and shared-pin interaction were not verified through automation; physical position exchange still awaits the paired user check. See [sanitized map evidence](evidence/nearby-map-ios.json) and [UI screenshots](SIMULATOR_UI_VALIDATION.md).
+
 ## Bluetooth calls and minimal interface — October 18
 
 The final signed iPhone Release build includes direct Bluetooth LE L2CAP calling, Opus speech, authenticated encrypted audio, explicit acceptance, mute/speaker controls, and call cleanup. The complete local Timescale workspace check passes **116 tests, zero failures, zero skips**. Final mobile/API typechecking and lint pass. Native checks also pass: 100 actual Opus encode/decode frames, CryptoKit authentication/replay tests, and 22 real AVAudioConverter/production PCM scenarios. A fresh run also passes 350 synthetic speech/silence/speech frames through the actual Objective-C codec wrapper and production PCM helper, including DTX recovery. These are distinct from a successful hardware call.

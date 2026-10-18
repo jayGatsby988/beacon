@@ -1,0 +1,51 @@
+{
+  "recordedAt": "2026-10-18T07:57:08.513815+00:00",
+  "bundleId": "org.beacon.community.dev",
+  "bundleSHA256": "8ce4c1bb8ec1d454c4561adea8fd92faefae5a0dbb5689be5b791cc7b5512bfd",
+  "binarySHA256": "13a9bb1c882a51ab5bc074805b9cfde80464a7d412c66e3e0c00ee2e9d9c4108",
+  "releaseBuild": "passed",
+  "strictSignatureVerification": "passed",
+  "allJavaScriptSourcesOlderThanBundle": true,
+  "workspace": {
+    "tests": 132,
+    "passed": 132,
+    "failed": 0,
+    "skipped": 0,
+    "typecheck": "passed",
+    "lint": "passed",
+    "database": "real local PostgreSQL/TimescaleDB"
+  },
+  "android": {
+    "beaconBleKotlinCompilation": "passed",
+    "productionScanPolicyTests": "passed",
+    "physicalTest": "not performed"
+  },
+  "installation": {
+    "pravanram": {
+      "installation": "passed",
+      "launch": "passed",
+      "processRunning": true
+    },
+    "vaibhav": {
+      "installation": "passed",
+      "launch": "passed",
+      "processRunning": true
+    }
+  },
+  "simulator": {
+    "mapRendering": "verified using current JS and compatible older native binary",
+    "locationSharingDefaultOff": "verified",
+    "groupJoinInviteOnly": "verified",
+    "cancelAndBackNavigation": "verified",
+    "fixtures": "no fake peers or positions introduced",
+    "mapGestureAutomation": "unavailable; not verified"
+  },
+  "physicalSharedMapPositions": "pending paired user check",
+  "audio": "previous user report silent; current build includes PCM correction, successful duplex audio still unverified",
+  "limits": [
+    "Both peers must run this update and explicitly enable location sharing in the same scope",
+    "Pins represent fresh reported GPS positions, not guaranteed live position",
+    "Offline street geometry covers UW campus only; free online basemap requires internet",
+    "Location packets stay in memory and are not mesh relayed or uploaded"
+  ]
+}

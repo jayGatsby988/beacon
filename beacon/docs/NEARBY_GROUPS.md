@@ -2,6 +2,16 @@
 
 This flow requires the updated native Beacon build on every participating phone. An earlier SOS-only build does not provide people discovery, direct messages, or private groups. Keep Beacon open on both phones with Bluetooth and nearby sharing enabled. No hosted service, online account, or paid resource is required.
 
+## Nearby map and connection refresh
+
+The Nearby map shows only current, directly connected Beacon users who explicitly enabled **Share my location** in the selected audience. Each report carries its original GPS capture time and optional accuracy. Pins disappear after 120 seconds or disconnection; a map pin is not a guarantee of a person’s present position. Location sharing defaults off, requires foreground permission, and stops on background, group change, or pausing Nearby. Enabling it again is an explicit action.
+
+Location packets are signed, session-bound, scope-checked, and ordered. Private-group packets use the existing group encryption; public Nearby shares with authenticated Beacon peers in public mode. Coordinates stay in memory and do not enter SQLite, cloud upload, chat history, or mesh forwarding. Opt-out withdraws the report, and checks between sends prevent a queued update from reaching additional peers after opt-out. A disconnected receiver may retain its last report until its short expiry.
+
+Online basemaps use the free [OpenFreeMap public service](https://openfreemap.org/quick_start/) with required attribution. Tile requests reveal the viewed geographic area to that provider; Beacon does not send peer names or message contents. Offline, the bundled UW campus geometry remains available. Outside its coverage, position markers can appear without street detail, with the limitation labeled. No account, paid map key, or cloud deployment is required.
+
+**Find people** refreshes scanning and clears peer retry delays without resetting live connections or durable queues. Native scan refreshes are coalesced; Android scan attempts are paced at least 10 seconds apart and rate-limit failures back off 30 seconds. The iOS watchdog defers a central-manager reset during a call. Joining a group requires only its invite; an optional local name can be supplied.
+
 ## Nearby
 
 The **Nearby** tab lists people whose Beacon apps have exchanged signed identity announcements over direct Bluetooth connections. It does not scan arbitrary phones or identify their owners. A display name is self-reported; the cryptographic identity belongs to that app installation.

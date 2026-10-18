@@ -14,6 +14,7 @@ Community help when connectivity disappears. Beacon is an iPhone/Android app wit
 - **Real transport:** Swift CoreBluetooth and Kotlin Android GATT scan/advertise/connect/send/receive, bounded fragmentation, retries and reconnection. No Expo Go or simulated transport in the shipped app.
 - **Durability:** SQLite transactions persist signed requests, encrypted direct-message packets, deduplication, derived state and forwarding history. Only Nearby SOS events enter the optional upload outbox. SecureStore protects device keys, group invites and cloud tokens.
 - **Offline request maps:** a bundled OpenStreetMap UW campus geometry extract works without external tiles/fonts/sprites. Coordinates and location accuracy remain visible. Optional provider regions use MapLibre downloads.
+- **Nearby map:** opt-in location reports from connected Beacon users, with age/accuracy and 120-second expiry. Location sharing stops on background or group change and is never stored or uploaded. Free online basemap plus the existing offline UW campus fallback. **Find people** refreshes discovery without dropping working links.
 - **Secondary tools:** connection diagnostics, actual local event history, redacted diagnostic export, settings, and optional authenticated incident replay/summary after connectivity returns.
 - **Optional backend:** Express API, PostgreSQL/Timescale migrations, scoped enrollment tokens, idempotent ingestion, replay pagination, late aggregate refresh, container and Vultr/Caddy configuration. No hosted service is provisioned by this repository.
 

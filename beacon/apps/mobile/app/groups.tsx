@@ -31,9 +31,13 @@ export default function Groups() {
     });
   const submit = () =>
     action.run(async () => {
-      if (!name.trim()) throw new Error("Enter a group name.");
-      if (mode === "create") await b.createGroup(name.trim());
-      else await b.joinGroup(name.trim(), code.trim());
+      if (mode === "create") {
+        if (!name.trim()) throw new Error("Enter a group name.");
+        await b.createGroup(name.trim());
+      } else {
+        await b.joinGroup("Joined group", code.trim());
+        router.replace("/(tabs)/nearby");
+      }
       setName("");
       setCode("");
       setMode(null);
@@ -126,15 +130,17 @@ export default function Groups() {
             <Heading size={22}>
               {mode === "create" ? "Create a group" : "Join a group"}
             </Heading>
-            <Field
-              label="Group name"
-              placeholder="Friends, family, neighbors"
-              value={name}
-              onChangeText={setName}
-              maxLength={40}
-              editable={!action.busy}
-              autoCapitalize="words"
-            />
+            {mode === "create" && (
+              <Field
+                label="Group name"
+                placeholder="Friends, family, neighbors"
+                value={name}
+                onChangeText={setName}
+                maxLength={40}
+                editable={!action.busy}
+                autoCapitalize="words"
+              />
+            )}
             {mode === "join" && (
               <Field
                 label="Invite code"
@@ -151,7 +157,7 @@ export default function Groups() {
             )}
             <Button
               busy={action.busy}
-              disabled={!name.trim() || (mode === "join" && !code.trim())}
+              disabled={mode === "create" ? !name.trim() : !code.trim()}
               onPress={submit}
             >
               {mode === "create" ? "Create group" : "Join group"}
