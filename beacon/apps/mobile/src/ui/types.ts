@@ -29,6 +29,8 @@ export interface PersonView {
   connected: boolean;
   lastSeenAt: number;
   unreadCount: number;
+  /** Ephemeral, voluntarily shared GPS fix; absent after disconnect or expiry. */
+  location?: { latitude: number; longitude: number; accuracy?: number; capturedAt: number };
 }
 export interface DirectMessageView {
   id: string;
@@ -146,6 +148,10 @@ export interface BeaconState {
   internet: boolean | null;
   locationPermission: "granted" | "denied" | "undetermined";
   location: LocationReport;
+  locationSharing: boolean;
+  findingPeople: boolean;
+  setLocationSharing(enabled: boolean): Promise<void>;
+  findPeople(): Promise<void>;
   map: MapState;
   sync: {
     status: "idle" | "syncing" | "error" | "disabled";

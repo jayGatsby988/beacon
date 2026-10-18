@@ -1,5 +1,9 @@
 import {
   createPresence,
+  createLocation,
+  verifyLocation,
+  LOCATION_LIMITS,
+  type SharedLocation,
   verifyPresence,
   createDirectMessage,
   createDirectReceipt,
@@ -21,6 +25,7 @@ interface Options {
   repository: SocialRepository;
   scope(): string | null;
   name(): string;
+  location?(): SharedLocation | null;
   random(n: number): Uint8Array;
   send(peerId: string, wire: string, scope: string | null): Promise<void>;
   getRead(key: string): Promise<number>;
@@ -39,6 +44,8 @@ export class SocialService {
       sent: Set<string>;
       receipts: Set<string>;
       lastPresence: number;
+      lastLocation: number;
+      sharedLocation: boolean;
       rateStart: number;
       received: number;
       sends: number;
@@ -57,6 +64,20 @@ export class SocialService {
   private flushing?: Promise<void>;
   private flushAgain = false;
   private now: () => number;
+  private locations = new Map<
+    string,
+    {
+      scope: string | null;
+      createdAt: number;
+      expiresAt: number;
+      capturedAt: number;
+      location: SharedLocation | null;
+    }
+  >();
+  private locationStamp = 0;
+  private locationSending?: Promise<void>;
+  private locationAgain = false;
+  private locationForce = false;
   constructor(private options: Options) {
     this.now = options.clock ?? Date.now;
   }
@@ -78,6 +99,8 @@ export class SocialService {
         sent: new Set(),
         receipts: new Set(),
         lastPresence: 0,
+        lastLocation: 0,
+        sharedLocation: false,
         rateStart: this.now(),
         received: 0,
         sends: 0,
@@ -86,7 +109,12 @@ export class SocialService {
     await this.announce(peerId);
   }
   disconnect(peerId: string) {
+    const nodeId = this.sessions.get(peerId)?.nodeId;
     this.sessions.delete(peerId);
+    if (nodeId && !this.getPeer(nodeId)) {
+      const previous = this.locations.get(nodeId);
+      if (previous) previous.location = null;
+    }
     void this.refresh().catch(this.options.onError);
   }
   /** Only sessions whose signed presence/message has established a Beacon identity. */
@@ -94,12 +122,15 @@ export class SocialService {
     return this.sessions.get(peerId)?.nodeId;
   }
   getPeer(nodeId: string): string | undefined {
-    const peers = [...this.sessions].filter(([, session]) => session.nodeId === nodeId);
+    const peers = [...this.sessions].filter(
+      ([, session]) => session.nodeId === nodeId,
+    );
     return peers.find(([id]) => id.startsWith("c:"))?.[0] ?? peers[0]?.[0];
   }
   reset() {
     this.generation++;
     this.sessions.clear();
+    this.locations.clear();
     this.contentCache.clear();
     this.readMarkers.clear();
   }
@@ -107,11 +138,16 @@ export class SocialService {
   async settle(): Promise<void> {
     this.disposed = true;
     this.reset();
-    while (this.operations.size || this.flushing || this.refreshing) {
+    while (
+      this.operations.size ||
+      this.flushing ||
+      this.refreshing ||
+      this.locationSending
+    ) {
       await Promise.allSettled([
         ...this.operations,
-        ...[this.flushing, this.refreshing].filter((p): p is Promise<void> =>
-          Boolean(p),
+        ...[this.flushing, this.refreshing, this.locationSending].filter(
+          (p): p is Promise<void> => Boolean(p),
         ),
       ]);
     }
@@ -178,6 +214,115 @@ export class SocialService {
     );
     session.lastPresence = this.now();
   }
+  /** Broadcast a current opt-in fix, or withdraw only from sessions already disclosed to. */
+  announceLocation(): Promise<void> {
+    return this.track(() => this.sendLocations(true));
+  }
+  private sendLocations(force = false): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    this.locationForce ||= force;
+    if (this.locationSending) {
+      this.locationAgain = true;
+      return this.locationSending;
+    }
+    this.locationSending = (async () => {
+      do {
+        this.locationAgain = false;
+        const forced = this.locationForce;
+        this.locationForce = false;
+        const generation = this.generation,
+          scope = this.options.scope();
+        let location = this.options.location?.() ?? null;
+        if (
+          location &&
+          location.capturedAt + LOCATION_LIMITS.ttlMs <= this.now()
+        )
+          location = null;
+        const createdAt = Math.max(this.now(), this.locationStamp + 1);
+        let wire: string | undefined;
+        for (const [peerId, session] of this.sessions) {
+          if (
+            this.disposed ||
+            generation !== this.generation ||
+            scope !== this.options.scope()
+          )
+            break;
+          // A user can withdraw while a prior peer's native send is pending.
+          // Never disclose the captured snapshot to additional peers after that change.
+          const currentLocation = this.options.location?.() ?? null;
+          if (
+            location &&
+            (!currentLocation ||
+              currentLocation.capturedAt + LOCATION_LIMITS.ttlMs <= this.now())
+          ) {
+            this.locationAgain = true;
+            break;
+          }
+          if (
+            !session.nodeId ||
+            (!location && !session.sharedLocation) ||
+            (location &&
+              !forced &&
+              session.sharedLocation &&
+              this.now() - session.lastLocation < 30_000)
+          )
+            continue;
+          this.resetRate(session);
+          if (session.sends >= 240 && location) continue;
+          wire ??= createLocation(
+            this.options.identity,
+            location,
+            scope,
+            createdAt,
+            this.options.random,
+          );
+          this.locationStamp = createdAt;
+          // Record disclosure before awaiting: a failed native write may still have reached the peer.
+          if (location) session.sharedLocation = true;
+          session.sends++;
+          try {
+            await this.options.send(peerId, wire, scope);
+            if (
+              this.disposed ||
+              generation !== this.generation ||
+              scope !== this.options.scope() ||
+              this.sessions.get(peerId) !== session
+            )
+              continue;
+            session.lastLocation = this.now();
+            if (!location) session.sharedLocation = false;
+          } catch (error) {
+            if (!this.disposed) this.options.onError(error);
+          }
+        }
+      } while (this.locationAgain && !this.disposed);
+    })()
+      .catch((error: unknown) => {
+        if (!this.disposed) this.options.onError(error);
+      })
+      .finally(() => {
+        this.locationSending = undefined;
+      });
+    return this.locationSending;
+  }
+  private liveLocation(
+    nodeId: string,
+    scope: string | null,
+  ): SharedLocation | undefined {
+    const known = this.locations.get(nodeId);
+    if (
+      !known ||
+      known.scope !== scope ||
+      !this.getPeer(nodeId) ||
+      !known.location ||
+      known.expiresAt <= this.now() ||
+      known.location.capturedAt + LOCATION_LIMITS.ttlMs <= this.now()
+    ) {
+      if (known) known.location = null;
+      return undefined;
+    }
+    return { ...known.location };
+  }
   /** Returns false for ordinary SOS mesh packets. Invalid social traffic is consumed, never reinterpreted. */
   receive(peerId: string, wire: string): Promise<boolean> {
     return this.track(() => this.receiveOnce(peerId, wire));
@@ -194,7 +339,8 @@ export class SocialService {
     } catch {
       return false;
     }
-    if (type !== "presence" && type !== "direct") return false;
+    if (type !== "presence" && type !== "direct" && type !== "location")
+      return false;
     const session = this.sessions.get(peerId);
     if (!session) return true;
     this.resetRate(session);
@@ -207,6 +353,36 @@ export class SocialService {
       scope === this.options.scope() &&
       this.sessions.get(peerId) === session;
     const identity = this.options.identity;
+    if (type === "location") {
+      const update = verifyLocation(wire, this.now());
+      if (
+        !update ||
+        update.scope !== scope ||
+        update.nodeId !== session.nodeId ||
+        update.nodeId === identity.nodeId
+      )
+        return true;
+      for (const [id, known] of this.locations)
+        if (known.expiresAt + LOCATION_LIMITS.futureSkewMs <= this.now())
+          this.locations.delete(id);
+      const previous = this.locations.get(update.nodeId);
+      if (
+        previous &&
+        (update.createdAt <= previous.createdAt ||
+          (update.location && update.location.capturedAt < previous.capturedAt))
+      )
+        return true;
+      if (!previous && this.locations.size >= 1000) return true;
+      this.locations.set(update.nodeId, {
+        scope,
+        createdAt: update.createdAt,
+        expiresAt: update.expiresAt,
+        capturedAt: update.location?.capturedAt ?? previous?.capturedAt ?? 0,
+        location: update.location,
+      });
+      await this.refresh();
+      return true;
+    }
     if (type === "presence") {
       const person = verifyPresence(wire, this.now());
       if (
@@ -225,6 +401,7 @@ export class SocialService {
       // A peer may join this group while the native connection remains open.
       if (this.now() - session.lastPresence > 5_000)
         await this.announce(peerId);
+      await this.sendLocations();
       await this.flush();
       await this.refresh();
       return true;
@@ -306,6 +483,7 @@ export class SocialService {
       if (!current()) return true;
       // Signed encrypted messages can arrive before a presence response; the key is still authenticated.
       session.nodeId = packet.origin;
+      await this.sendLocations();
       await this.flush();
     }
     await this.refresh();
@@ -365,6 +543,7 @@ export class SocialService {
       for (const id of session.sent)
         if (!session.receipts.has(id)) session.sent.delete(id);
     }
+    await this.sendLocations();
     await this.flush();
     await this.refresh();
   }
@@ -551,6 +730,7 @@ export class SocialService {
             (session) => session.nodeId === person.nodeId,
           ),
           unreadCount: unread.get(person.nodeId) ?? 0,
+          location: this.liveLocation(person.nodeId, scope),
         }));
         if (
           !this.disposed &&

@@ -517,3 +517,111 @@ export function openDirect(
     plaintext?.fill(0);
   }
 }
+
+export const LOCATION_LIMITS = Object.freeze({
+  ttlMs: 120_000,
+  futureSkewMs: 5_000,
+  wireBytes: 2048,
+});
+const sharedLocationSchema = z
+  .object({
+    latitude: z.number().finite().min(-90).max(90),
+    longitude: z.number().finite().min(-180).max(180),
+    accuracy: z.number().finite().nonnegative().max(100_000).optional(),
+    capturedAt: timestamp,
+  })
+  .strict();
+export type SharedLocation = z.infer<typeof sharedLocationSchema>;
+const locationBodySchema = z
+  .object({
+    version: z.literal(1),
+    type: z.literal("location"),
+    nodeId: hex32,
+    publicKey: hex32,
+    scope: scopeSchema,
+    createdAt: timestamp,
+    expiresAt: timestamp,
+    nonce: z.string().regex(/^[0-9a-f]{32}$/),
+    location: sharedLocationSchema.nullable(),
+  })
+  .strict();
+const locationSchema = locationBodySchema.extend({ signature }).strict();
+export interface LocationUpdate {
+  nodeId: string;
+  publicKey: string;
+  scope: string | null;
+  createdAt: number;
+  expiresAt: number;
+  location: SharedLocation | null;
+}
+function locationFresh(
+  location: SharedLocation | null,
+  createdAt: number,
+  now: number,
+) {
+  return (
+    !location ||
+    (location.capturedAt <= createdAt + LOCATION_LIMITS.futureSkewMs &&
+      location.capturedAt <= now + LOCATION_LIMITS.futureSkewMs &&
+      location.capturedAt + LOCATION_LIMITS.ttlMs > now)
+  );
+}
+/** Ephemeral disclosure only: never persist, cloud-sync, flood, or relay this wire. */
+export function createLocation(
+  identity: Identity,
+  location: SharedLocation | null,
+  scope: string | null,
+  now: number,
+  random: RandomBytes,
+): string {
+  const body = locationBodySchema.parse({
+    version: 1,
+    type: "location",
+    nodeId: identity.nodeId,
+    publicKey: identity.publicKey,
+    scope,
+    createdAt: now,
+    expiresAt: now + LOCATION_LIMITS.ttlMs,
+    nonce: bytesToHex(checkedRandom(random, 16)),
+    location,
+  });
+  if (!locationFresh(body.location, now, now))
+    throw new Error("Location fix is stale or in the future");
+  return encode({ ...body, signature: sign(identity, body) });
+}
+export function verifyLocation(
+  wire: string,
+  now: number,
+): LocationUpdate | null {
+  try {
+    if (
+      wire.length > LOCATION_LIMITS.wireBytes ||
+      utf8ToBytes(wire).length > LOCATION_LIMITS.wireBytes
+    )
+      return null;
+    const { signature: proof, ...body } = locationSchema.parse(parse(wire));
+    if (
+      body.nodeId !== nodeId(body.publicKey) ||
+      !live(
+        body.createdAt,
+        body.expiresAt,
+        LOCATION_LIMITS.ttlMs,
+        now,
+        LOCATION_LIMITS.futureSkewMs,
+      ) ||
+      !locationFresh(body.location, body.createdAt, now) ||
+      !validSignature(body.publicKey, body, proof)
+    )
+      return null;
+    return {
+      nodeId: body.nodeId,
+      publicKey: body.publicKey,
+      scope: body.scope,
+      createdAt: body.createdAt,
+      expiresAt: body.expiresAt,
+      location: body.location,
+    };
+  } catch {
+    return null;
+  }
+}

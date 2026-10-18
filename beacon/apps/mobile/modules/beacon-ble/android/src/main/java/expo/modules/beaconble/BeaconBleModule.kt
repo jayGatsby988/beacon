@@ -30,6 +30,10 @@ class BeaconBleModule : Module() {
       }
     }; Unit }
     AsyncFunction("stop") { promise: Promise -> handler.post { transport?.stop(); promise.resolve(null) }; Unit }
+    AsyncFunction("refreshDiscovery") { promise: Promise -> handler.post {
+      val t = transport
+      if (t == null) promise.reject("NOT_STARTED", "Start Bluetooth first", null) else t.refreshDiscovery(promise)
+    }; Unit }
     AsyncFunction("getState") { promise: Promise -> handler.post { promise.resolve(transport?.state() ?: mapOf("state" to "unknown", "advertising" to false, "scanning" to false)) }; Unit }
     AsyncFunction("send") { peerId: String, base64: String, promise: Promise -> handler.post {
       val t = transport
@@ -65,6 +69,7 @@ private class BeaconTransport(private val context: Context, private val h: Handl
   private val cccId = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
   private val outgoing = mutableMapOf<String, Link>(); private val incoming = mutableMapOf<String, Link>()
   private val cooldown = mutableMapOf<String, Pair<Long, Int>>()
+  private val scanPolicy = BeaconScanPolicy()
   private var sequence = java.security.SecureRandom().nextInt()
   private fun authorized(): Boolean {
     val permissions = if (Build.VERSION.SDK_INT >= 31) arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE) else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -124,13 +129,31 @@ private class BeaconTransport(private val context: Context, private val h: Handl
           catch (e: Exception) { publishing = false; error("ADVERTISE_FAILED", e.message ?: "Advertising failed") }
         }
       }
-      if (!scanning) {
+      if (!scanning && scanPolicy.canStart(SystemClock.elapsedRealtime())) {
         val scanner = adapter.bluetoothLeScanner
         if (scanner == null) error("SCAN_UNAVAILABLE", "Bluetooth scanner unavailable")
-        else { val callback = scanCallback(generation); scan = callback; scanner.startScan(listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(serviceId)).build()), ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), callback); scanning = true }
+        else {
+          val callback = scanCallback(generation); scan = callback
+          scanPolicy.started(SystemClock.elapsedRealtime())
+          scanner.startScan(listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(serviceId)).build()), ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), callback)
+          scanning = true
+        }
       }
     } catch (e: Exception) { pendingService = null; publishing = false; error("START_FAILED", e.message ?: "Bluetooth start failed") }
     stateEvent()
+  }
+  fun refreshDiscovery(promise: Promise) {
+    if (!wanted) { promise.reject("NOT_STARTED", "Start Bluetooth first", null); return }
+    // Preserve all live/pending GATT sessions, send queues, and callback epochs.
+    // In particular, tapping retry must never bypass Android's scan backoff.
+    cooldown.clear()
+    if (authorized() && adapter?.isEnabled == true && scanning && scanPolicy.canStart(SystemClock.elapsedRealtime())) {
+      try {
+        scan?.let { adapter.bluetoothLeScanner?.stopScan(it) }
+        scan = null; scanning = false
+      } catch (e: Exception) { promise.reject("SCAN_FAILED", "Could not refresh Bluetooth discovery", e); return }
+    }
+    activate(); promise.resolve(state())
   }
   private val tick = object : Runnable { override fun run() {
     if (!wanted) return
@@ -220,7 +243,13 @@ private class BeaconTransport(private val context: Context, private val h: Handl
       emit("onPeer", mapOf("peerId" to link.id, "state" to "discovered", "rssi" to result.rssi))
       try { link.gatt = device.connectGatt(context, false, clientCallback, BluetoothDevice.TRANSPORT_LE); if (link.gatt == null) close(link, "CONNECT_FAILED") } catch (_: Exception) { close(link, "CONNECT_FAILED") }
     } }
-    override fun onScanFailed(errorCode: Int) { h.post { if (!wanted || epoch != generation || scan !== this) return@post; scanning = false; error("SCAN_FAILED", "Android scan error $errorCode"); stateEvent() } }
+    override fun onScanFailed(errorCode: Int) { h.post {
+      if (!wanted || epoch != generation || scan !== this) return@post
+      scanning = false; scan = null
+      scanPolicy.failed(SystemClock.elapsedRealtime(), errorCode)
+      error("SCAN_FAILED", "Android scan error $errorCode; discovery will retry automatically")
+      stateEvent()
+    } }
   }
   private fun advertiseCallback(epoch: Long) = object : AdvertiseCallback() {
     override fun onStartSuccess(settingsInEffect: AdvertiseSettings) { h.post { if (!wanted || epoch != generation || advertise !== this) return@post; advertising = true; publishing = false; stateEvent() } }

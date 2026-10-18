@@ -12,6 +12,7 @@ export type BleEvents = {onPeer: (event: BlePeer) => void; onData: (event: {peer
 export declare class BeaconBleNativeModule extends NativeModule<BleEvents> {
   start(options: {nodeId: string; serviceUuid?: string}): Promise<BleState>;
   stop(): Promise<void>;
+  refreshDiscovery(): Promise<BleState>;
   send(peerId: string, base64: string): Promise<void>;
   getState(): Promise<BleState>;
   getVoiceSupport(): Promise<{supported: boolean; reason?: string}>;

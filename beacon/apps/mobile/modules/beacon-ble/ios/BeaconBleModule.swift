@@ -40,6 +40,10 @@ public class BeaconBleModule: Module {
       }
     }
     AsyncFunction("stop") { (promise: Promise) in DispatchQueue.main.async { self.transport?.stop(); promise.resolve(nil) } }
+    AsyncFunction("refreshDiscovery") { (promise: Promise) in DispatchQueue.main.async {
+      guard let transport = self.transport else { promise.reject("NOT_STARTED", "Start Bluetooth first"); return }
+      transport.refreshDiscovery(promise: promise)
+    } }
     AsyncFunction("getState") { (promise: Promise) in DispatchQueue.main.async { promise.resolve(self.transport?.state() ?? ["state": "unknown", "advertising": false, "scanning": false]) } }
     AsyncFunction("send") { (peer: String, base64: String, promise: Promise) in DispatchQueue.main.async {
       guard let t = self.transport else { promise.reject("NOT_STARTED", "Start Bluetooth first"); return }
@@ -71,6 +75,7 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
   private var outgoing: [UUID: BeaconLink] = [:]; private var incoming: [UUID: BeaconLink] = [:]
   private var notifyChar: CBMutableCharacteristic?; private var timer: Timer?
   private var cooldown: [UUID: (TimeInterval, Int)] = [:]; private var sequence = UInt32.random(in: 0...UInt32.max)
+  private var lastScanStarted = -Double.infinity
   private var voice: BeaconVoiceSession?
   private var voicePublishPending: String?
   private var voicePublishPromise: Promise?
@@ -113,6 +118,7 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
     guard wanted else { return }
     if centralManager.state == .poweredOn && !centralManager.isScanning {
       trace("starting filtered scan")
+      lastScanStarted = ProcessInfo.processInfo.systemUptime
       centralManager.scanForPeripherals(withServices: [service], options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
     }
     if peripheralManager.state == .poweredOn && !serviceReady {
@@ -129,6 +135,18 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
       peripheralManager.startAdvertising([CBAdvertisementDataServiceUUIDsKey: [service]])
     }
     stateEvent()
+  }
+  func refreshDiscovery(promise: Promise) {
+    guard wanted else { promise.reject("NOT_STARTED", "Start Bluetooth first"); return }
+    // A discovery retry must not retire live links, queued writes, L2CAP calls,
+    // or the callback identities held while a connection is being cancelled.
+    cooldown.removeAll()
+    if centralManager.state == .poweredOn && centralManager.isScanning &&
+      ProcessInfo.processInfo.systemUptime - lastScanStarted >= 10 {
+      centralManager.stopScan()
+    }
+    activate()
+    promise.resolve(state())
   }
   func stop() {
     trace("stop requested")
@@ -162,7 +180,9 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
   private func tick() {
     // Do not reuse a CBPeripheral until cancellation completes. If CoreBluetooth
     // never completes it, retire the manager so its callbacks cannot hit a retry.
-    if retiring.values.contains(where: { ProcessInfo.processInfo.systemUptime - $0.1 > 20 }) {
+    // An unrelated stuck cancellation must not tear down an ongoing call.
+    // Keep the retiring identity quarantined until the call has finished.
+    if voice == nil && retiring.values.contains(where: { ProcessInfo.processInfo.systemUptime - $0.1 > 20 }) {
       centralManager.delegate = nil; centralManager.stopScan()
       for link in Array(outgoing.values) {
         if let p = link.peripheral { p.delegate = nil; centralManager.cancelPeripheralConnection(p) }

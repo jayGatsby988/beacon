@@ -86,7 +86,7 @@ interface Write {
   wire: string;
 }
 class World {
-  constructor(private voice = false) {}
+  constructor(private voice = false, private gps = false) {}
   readonly voiceEvents: { phone: string; action: string; callId?: string }[] = [];
   readonly directory = mkdtempSync(join(tmpdir(), "beacon-group-service-"));
   readonly phones = new Map<string, Phone>();
@@ -126,10 +126,13 @@ class World {
       },
       "expo-crypto": { getRandomBytes: randomBytes, randomUUID },
       "expo-location": {
+        Accuracy: { Balanced: 3 },
         getForegroundPermissionsAsync: async () => ({
-          status: "denied",
-          granted: false,
+          status: this.gps ? "granted" : "denied",
+          granted: this.gps,
         }),
+        requestForegroundPermissionsAsync: async () => ({ status: this.gps ? "granted" : "denied", granted: this.gps }),
+        getCurrentPositionAsync: async () => ({ coords: { latitude: 47.6551, longitude: -122.3035, accuracy: 12 }, timestamp: Date.now() + 0.125 }),
       },
       "expo-network": {
         getNetworkStateAsync: async () => ({ isConnected: false }),
@@ -530,3 +533,77 @@ for (const endBy of ["group", "pause", "background", "disconnect", "dispose"] as
     } finally { await world.close(); }
   });
 }
+
+test("map location is opt-in, encrypted in a group, ephemeral, and withdrawn on background", { timeout: 10000 }, async () => {
+  const world = new World(false, true);
+  try {
+    const a = await world.open("a"), b = await world.open("b"), outsider = await world.open("outsider");
+    await a.service.state.createGroup("Map test group");
+    const group = a.service.state.groups[0];
+    await b.service.state.joinGroup("Map test group", group.inviteCode);
+    world.connect("a", "b");
+    world.connect("a", "outsider");
+    await world.drain();
+    assert.equal(a.service.state.locationSharing, false);
+    assert.equal(b.service.state.people.find((p) => p.nodeId === a.service.state.nodeId)?.location, undefined);
+    const before = world.writes.length;
+    await a.service.state.setLocationSharing(true);
+    await world.drain();
+    assert.equal(a.service.state.locationSharing, true);
+    const received = b.service.state.people.find((p) => p.nodeId === a.service.state.nodeId)?.location;
+    assert.equal(received?.latitude, 47.6551);
+    assert.equal(received?.longitude, -122.3035);
+    assert.equal(Number.isSafeInteger(received?.capturedAt), true, "native fractional timestamp normalized");
+    assert.ok(outsider.service.state.people.every((p) => !p.location), "public outsider gets no private map fixes");
+    const shared = world.writes.slice(before).filter((p) => p.from === "a");
+    assert.ok(shared.some((p) => protocol.openGroup(group, p.wire)?.includes('"type":"location"')));
+    assert.ok(shared.every((p) => !p.wire.includes("47.6551") && JSON.parse(p.wire).type === "group"));
+    for (const phone of [a, b]) {
+      for (const db of phone.databases.values()) {
+        for (const row of db.sql.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]) {
+          const table = row.name.replaceAll('"', '""');
+          const serialized = JSON.stringify(db.sql.prepare(`SELECT * FROM "${table}"`).all());
+          assert.ok(!serialized.includes("47.6551"), "live map coordinates never persist in any app table");
+        }
+      }
+    }
+    a.emit("appState", "background");
+    await world.drain();
+    assert.equal(a.service.state.locationSharing, false);
+    assert.equal(b.service.state.people.find((p) => p.nodeId === a.service.state.nodeId)?.location, undefined);
+    a.emit("appState", "active");
+    await world.drain();
+    assert.equal(a.service.state.locationSharing, false, "foregrounding does not restore sharing silently");
+    const restarted = await world.restart("a");
+    assert.equal(restarted.service.state.locationSharing, false, "sharing is not a persisted preference");
+  } finally { await world.close(); }
+});
+
+test("changing map audience stops location sharing before public presence", { timeout: 10000 }, async () => {
+  const world = new World(false, true);
+  try {
+    const a = await world.open("a"), b = await world.open("b");
+    await a.service.state.createGroup("Private map");
+    await b.service.state.joinGroup("Private map", a.service.state.groups[0].inviteCode);
+    world.connect("a", "b"); await world.drain();
+    await a.service.state.setLocationSharing(true); await world.drain();
+    assert.ok(b.service.state.people.find((p) => p.nodeId === a.service.state.nodeId)?.location);
+    const start = world.writes.length;
+    await a.service.state.selectGroup(null); await world.drain();
+    assert.equal(a.service.state.locationSharing, false);
+    assert.equal(b.service.state.people.find((p) => p.nodeId === a.service.state.nodeId)?.location, undefined);
+    assert.ok(world.writes.slice(start).every((p) => JSON.parse(p.wire).type !== "location"), "private fix never broadcast in public");
+  } finally { await world.close(); }
+});
+
+test("denied location permission leaves messaging usable and sharing off", { timeout: 10000 }, async () => {
+  const world = new World();
+  try {
+    const a = await world.open("a");
+    await assert.rejects(a.service.state.setLocationSharing(true), /Allow location/);
+    assert.equal(a.service.state.locationSharing, false);
+    assert.equal(a.service.state.relayRunning, true);
+    const request = await a.service.state.sendSOS();
+    assert.ok(a.service.state.requests.some((r) => r.id === request));
+  } finally { await world.close(); }
+});

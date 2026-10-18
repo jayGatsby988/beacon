@@ -37,6 +37,8 @@ function fixture(
     map?: () => Promise<void>;
     network?: () => Promise<unknown>;
     location?: () => Promise<unknown>;
+    position?: () => Promise<unknown>;
+    requestPermission?: () => Promise<unknown>;
     fastLocationTimeout?: boolean;
   } = {},
 ) {
@@ -97,6 +99,10 @@ function fixture(
     stop: async () => {
       calls.push("stop");
     },
+    refreshDiscovery: async () => {
+      calls.push("refreshDiscovery");
+      return { state: "poweredOn", advertising: true, scanning: true };
+    },
     send: async (peerId: string, data: string) => {
       writes.push({
         peerId,
@@ -124,7 +130,8 @@ function fixture(
     "expo-crypto": { getRandomBytes: randomBytes, randomUUID },
     "expo-location": {
       Accuracy: { Balanced: 3 },
-      getCurrentPositionAsync: never,
+      getCurrentPositionAsync: options.position ?? never,
+      requestForegroundPermissionsAsync: options.requestPermission ?? (async () => ({ status: "denied", granted: false })),
       getForegroundPermissionsAsync:
         options.location ??
         (async () => ({ status: "denied", granted: false })),
@@ -340,3 +347,32 @@ test(
     assert.equal(h.service.state, snapshot);
   },
 );
+
+test("Find people refreshes discovery without stopping Bluetooth or losing saved SOS", async (t) => {
+  const h = fixture();
+  t.after(() => h.service.dispose());
+  await h.service.initialize();
+  const requestId = await h.service.sendSOS();
+  const before = h.calls.length;
+  await h.service.state.findPeople();
+  assert.ok(h.calls.slice(before).includes("refreshDiscovery"));
+  assert.ok(!h.calls.slice(before).includes("stop"), "discovery retry preserves current radio sessions");
+  assert.equal(h.service.state.findingPeople, false);
+  assert.ok([...h.records.values()].some((r) => r.envelope.requestId === requestId));
+  h.emit("onPeer", { peerId: "newly-found-peer", state: "connected" });
+  for (let i = 0; i < 8; i++) await turn();
+  assert.ok(h.writes.some((p) => JSON.parse(p.wire).envelope?.requestId === requestId), "saved SOS still forwards after retry");
+});
+
+test("turning location sharing off cancels an outstanding permission prompt", async (t) => {
+  let grant!: (value: unknown) => void;
+  const h = fixture({ requestPermission: () => new Promise((resolve) => { grant = resolve; }) });
+  t.after(() => h.service.dispose());
+  await h.service.initialize();
+  const enabling = h.service.state.setLocationSharing(true);
+  await h.service.state.setLocationSharing(false);
+  grant({ status: "granted", granted: true });
+  await enabling;
+  assert.equal(h.service.state.locationSharing, false);
+  assert.ok(h.writes.every((p) => JSON.parse(p.wire).type !== "location"));
+});

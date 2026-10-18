@@ -14,6 +14,7 @@ import {
   deriveRequests,
   hash,
   LIMITS,
+  LOCATION_LIMITS,
   MeshRouter,
   createEnvelope,
   createSocialGroup,
@@ -94,6 +95,9 @@ export class BeaconService {
   private actionCount = 0;
   private resumePromise?: Promise<void>;
   private locationPromise?: Promise<void>;
+  private locationShareGeneration = 0;
+  private lastSharedLocationRefresh = 0;
+  private findPeoplePromise?: Promise<void>;
   private networkProbe?: Promise<void>;
   private actions = Promise.resolve();
   private appActive = true;
@@ -136,6 +140,10 @@ export class BeaconService {
       internet: null,
       locationPermission: "undetermined",
       location: { source: "unavailable" },
+      locationSharing: false,
+      findingPeople: false,
+      setLocationSharing: this.setLocationSharing,
+      findPeople: this.findPeople,
       map: { status: "missing", progress: 0 },
       sync: { status: "disabled", pendingCount: 0 },
       completeSetup: this.completeSetup,
@@ -365,6 +373,7 @@ export class BeaconService {
         repository: socialRepository,
         scope: () => this.state.activeGroupId,
         name: () => this.state.displayName,
+        location: () => this.sharedLocation(),
         random,
         send: (peer, wire, scope) => this.sendWire(peer, wire, scope),
         getRead: (key) => this.repo().getSetting(key, 0),
@@ -442,7 +451,10 @@ export class BeaconService {
           this.appActive = state === "active";
           if (this.appActive) void this.resume().catch(this.error);
           // Permission dialogs use inactive; only actual backgrounding ends a call.
-          if (state === "background") void this.calls?.hangup("Keep Beacon open to stay on a call.").catch(this.error);
+          if (state === "background") {
+            void this.setLocationSharing(false).catch(this.error);
+            void this.calls?.hangup("Keep Beacon open to stay on a call.").catch(this.error);
+          }
         }),
       );
       this.deviceSubscriptions.push(
@@ -461,6 +473,8 @@ export class BeaconService {
             .then(() => this.refresh())
             .catch(this.error);
           void this.social?.tick().catch(this.error);
+          if (this.state.locationSharing && Date.now() - this.lastSharedLocationRefresh >= 25_000)
+            void this.refreshSharedLocation().catch(this.error);
         }
       }, 15_000);
       this.callTimer = setInterval(() => {
@@ -771,6 +785,100 @@ export class BeaconService {
       this.locationPromise = undefined;
     }));
   };
+  private sharedLocation() {
+    const fix = this.state.location;
+    if (!this.state.locationSharing || !this.appActive || !this.state.relayEnabled || this.disposed ||
+      fix.source !== "device" || fix.latitude == null || fix.longitude == null || fix.capturedAt == null ||
+      Date.now() - fix.capturedAt >= LOCATION_LIMITS.ttlMs || fix.capturedAt > Date.now() + LOCATION_LIMITS.futureSkewMs) return null;
+    return { latitude: fix.latitude, longitude: fix.longitude, accuracy: fix.accuracy, capturedAt: fix.capturedAt };
+  }
+  setLocationSharing = async (enabled: boolean) => {
+    if (this.disposed) return;
+    const generation = ++this.locationShareGeneration;
+    const scope = this.state.activeGroupId;
+    if (!enabled) {
+      this.update({ locationSharing: false });
+      await this.social?.announceLocation();
+      return;
+    }
+    if (this.disposed || this.scopeChanging || !this.appActive)
+      throw new Error("Open Beacon to share your location.");
+    const current = () => !this.disposed && this.appActive && generation === this.locationShareGeneration && scope === this.state.activeGroupId;
+    const permission = await Location.requestForegroundPermissionsAsync();
+    if (!current()) return;
+    this.update({ locationPermission: permission.status });
+    if (!permission.granted) throw new Error("Allow location in phone Settings to appear on the map.");
+    // GPS is optional and never enters the serialized SOS/action queue.
+    await this.refreshLocation();
+    if (!current()) return;
+    const fix = this.state.location;
+    if (fix.source !== "device" || fix.capturedAt == null || Date.now() - fix.capturedAt >= LOCATION_LIMITS.ttlMs || fix.capturedAt > Date.now() + LOCATION_LIMITS.futureSkewMs)
+      throw new Error("Your location is unavailable. Try again in a moment.");
+    if (!this.state.relayEnabled) await this.setRelayEnabled(true);
+    if (!current()) return;
+    this.lastSharedLocationRefresh = Date.now();
+    this.update({ locationSharing: true });
+    await this.social?.announceLocation();
+  };
+  private async refreshSharedLocation() {
+    this.lastSharedLocationRefresh = Date.now();
+    const generation = this.locationShareGeneration;
+    await this.refreshLocation();
+    if (this.disposed || generation !== this.locationShareGeneration || !this.state.locationSharing) return;
+    if (this.state.locationPermission !== "granted") {
+      await this.setLocationSharing(false);
+      return;
+    }
+    await this.social?.announceLocation();
+  }
+  findPeople = (): Promise<void> => {
+    return (this.findPeoplePromise ??= this.findPeopleOnce().finally(() => { this.findPeoplePromise = undefined; }));
+  };
+  private async findPeopleOnce() {
+    if (this.disposed || !this.identity || !this.state.setupComplete || this.scopeChanging || !this.appActive)
+      throw new Error("Finish setup and keep Beacon open to find people.");
+    if (this.state.call && !["ended", "failed"].includes(this.state.call.status))
+      throw new Error("Finish the call before searching again.");
+    this.update({ findingPeople: true, error: undefined });
+    this.pausingCalls = true;
+    const scope = this.state.activeGroupId;
+    const current = () => !this.disposed && this.appActive && !this.scopeChanging && scope === this.state.activeGroupId;
+    try {
+      if (Platform.OS === "android") {
+        const permissions = Number(Platform.Version) >= 31
+          ? [PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN, PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT, PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE]
+          : [PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
+        await PermissionsAndroid.requestMultiple(permissions);
+      }
+      if (!current()) return;
+      // Preserve working links. With no authenticated people, a fresh radio lifecycle
+      // clears stuck discovery/cooldown while durable SOS and messages stay saved.
+      if (typeof BeaconBle.refreshDiscovery !== "function" && !this.state.people.some((p) => p.connected && p.scope === this.state.activeGroupId)) {
+        await BeaconBle.stop();
+        if (!current()) return;
+        for (const peer of this.state.peers) this.mesh().disconnect(peer.id);
+        this.social?.reset();
+        await this.social?.refresh();
+        if (!current()) return;
+        this.update({ peers: [], relayRunning: false });
+      }
+      await this.repo().setSetting("relayEnabled", true);
+      if (!current()) return;
+      this.update({ relayEnabled: true });
+      await this.resume();
+      if (!current()) return;
+      if (typeof BeaconBle.refreshDiscovery === "function") {
+        const ble = await BeaconBle.refreshDiscovery();
+        this.update({ bluetooth: ble.state, relayRunning: ble.advertising || ble.scanning });
+      }
+      if (this.state.bluetooth === "unauthorized") throw new Error("Allow Bluetooth in phone Settings.");
+      if (this.state.bluetooth === "poweredOff") throw new Error("Turn on Bluetooth in phone Settings.");
+      if (this.state.bluetooth === "unsupported") throw new Error("Nearby needs a phone with Bluetooth support.");
+    } finally {
+      this.pausingCalls = false;
+      this.update({ findingPeople: false });
+    }
+  }
   private async refreshLocationOnce() {
     const p = await Location.getForegroundPermissionsAsync();
     this.update({ locationPermission: p.status });
@@ -886,6 +994,7 @@ export class BeaconService {
     // Bind every saved request to its original scope. Switching never rebroadcasts private packets publicly.
     this.scopeChanging = true;
     try {
+      await this.setLocationSharing(false);
       await this.calls?.hangup("Group changed");
       await this.calls?.reset();
       await this.receiveTail;
@@ -1043,7 +1152,10 @@ export class BeaconService {
     if (this.pausingCalls) return;
     this.pausingCalls = !enabled;
     try {
-      if (!enabled) await this.calls?.hangup("Bluetooth paused");
+      if (!enabled) {
+        await this.setLocationSharing(false);
+        await this.calls?.hangup("Bluetooth paused");
+      }
       await this.repo().setSetting("relayEnabled", enabled);
       this.update({ relayEnabled: enabled });
       if (enabled) await this.resume();

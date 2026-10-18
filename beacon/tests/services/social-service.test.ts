@@ -14,6 +14,9 @@ import type {
 } from "../../apps/mobile/src/ui/types.js";
 import {
   createIdentity,
+  createLocation,
+  verifyLocation,
+  type SharedLocation,
   createPresence,
   createDirectMessage,
   createDirectReceipt,
@@ -80,15 +83,19 @@ function fixture() {
   let readQueries = 0;
   let sendGate: Promise<void> | undefined;
   let failSend = false;
+  let location: SharedLocation | null = null;
+  let locationGate: Promise<void> | undefined;
   const service = new SocialService({
     identity: local,
     repository: repository as unknown as SocialRepository,
     scope: () => scope,
     name: () => "Synthetic local",
+    location: () => location,
     random: randomBytes,
     send: async (peerId, wire, currentScope) => {
       if (failSend) throw new Error("Radio unavailable");
       if (JSON.parse(wire).type === "direct") await sendGate;
+      if (JSON.parse(wire).type === "location") await locationGate;
       sent.push({ peerId, wire, scope: currentScope });
     },
     getRead: async (key) => {
@@ -123,6 +130,12 @@ function fixture() {
     presence,
     readMarkers,
     readQueries: () => readQueries,
+    setLocation: (next: SharedLocation | null) => {
+      location = next;
+    },
+    locationGate: (next: Promise<void> | undefined) => {
+      locationGate = next;
+    },
     setScope: (next: string | null) => {
       scope = next;
       service.reset();
@@ -591,4 +604,245 @@ test("an incoming receipt cannot create an unsolicited contact", async (t) => {
   await h.service.receive("peer", encodeDirect(receipt));
   assert.equal(h.repository.contacts.length, 0);
   assert.equal(h.repository.messages.size, 0);
+});
+
+const syntheticPoint = (capturedAt = NOW): SharedLocation => ({
+  latitude: 1.25,
+  longitude: -2.5,
+  accuracy: 8,
+  capturedAt,
+});
+const locationsSent = (h: ReturnType<typeof fixture>) =>
+  h.sent.filter((message) => JSON.parse(message.wire).type === "location");
+const displayedLocation = (h: ReturnType<typeof fixture>) =>
+  h.changes.at(-1)?.people.find((person) => person.nodeId === h.remote.nodeId)
+    ?.location;
+
+test("locations default off; opt-in announces only to authenticated sessions, periodically, and withdraws immediately", async (t) => {
+  const h = fixture();
+  t.after(() => h.service.settle());
+  await h.connect();
+  await h.service.tick();
+  await h.service.announceLocation();
+  assert.equal(locationsSent(h).length, 0);
+  h.setLocation(syntheticPoint());
+  await h.service.announceLocation();
+  assert.deepEqual(
+    verifyLocation(locationsSent(h)[0].wire, NOW)?.location,
+    syntheticPoint(),
+  );
+  await h.service.tick();
+  assert.equal(locationsSent(h).length, 1);
+  h.setNow(NOW + 30000);
+  await h.service.tick();
+  assert.equal(locationsSent(h).length, 2);
+  h.setLocation(null);
+  await h.service.announceLocation();
+  assert.equal(
+    verifyLocation(locationsSent(h).at(-1)!.wire, NOW + 30000)?.location,
+    null,
+  );
+  const count = locationsSent(h).length;
+  await h.service.announceLocation();
+  await h.service.tick();
+  assert.equal(locationsSent(h).length, count);
+  const g = fixture();
+  t.after(() => g.service.settle());
+  g.setLocation(syntheticPoint());
+  await g.service.connect("peer");
+  assert.equal(locationsSent(g).length, 0);
+  await g.service.receive("peer", g.presence());
+  assert.equal(locationsSent(g).length, 1);
+});
+test("remote pins require session identity/scope; location traffic never writes storage or forwards", async (t) => {
+  const h = fixture();
+  t.after(() => h.service.settle());
+  await h.service.connect("peer");
+  const wire = createLocation(
+    h.remote,
+    syntheticPoint(),
+    null,
+    NOW,
+    randomBytes,
+  );
+  assert.equal(await h.service.receive("peer", wire), true);
+  assert.equal(displayedLocation(h), undefined);
+  await h.service.receive("peer", h.presence());
+  const writes = h.repository.personWrites,
+    packets = h.repository.messages.size,
+    sends = h.sent.length;
+  await h.service.receive(
+    "peer",
+    createLocation(
+      createIdentity(randomBytes),
+      syntheticPoint(),
+      null,
+      NOW,
+      randomBytes,
+    ),
+  );
+  await h.service.receive(
+    "peer",
+    createLocation(
+      h.remote,
+      syntheticPoint(),
+      "a".repeat(64),
+      NOW,
+      randomBytes,
+    ),
+  );
+  assert.equal(displayedLocation(h), undefined);
+  await h.service.receive("peer", wire);
+  assert.deepEqual(displayedLocation(h), syntheticPoint());
+  assert.equal(h.repository.personWrites, writes);
+  assert.equal(h.repository.messages.size, packets);
+  assert.equal(h.sent.length, sends);
+});
+test("location update watermarks reject stale packets, older fixes, and replay after withdrawal/disconnect", async (t) => {
+  const h = fixture();
+  t.after(() => h.service.settle());
+  await h.connect();
+  h.setNow(NOW + 1000);
+  const latest = createLocation(
+    h.remote,
+    syntheticPoint(NOW + 1000),
+    null,
+    NOW + 1000,
+    randomBytes,
+  );
+  await h.service.receive("peer", latest);
+  await h.service.receive(
+    "peer",
+    createLocation(h.remote, syntheticPoint(), null, NOW, randomBytes),
+  );
+  await h.service.receive(
+    "peer",
+    createLocation(h.remote, syntheticPoint(), null, NOW + 1001, randomBytes),
+  );
+  assert.equal(displayedLocation(h)?.capturedAt, NOW + 1000);
+  await h.service.receive(
+    "peer",
+    createLocation(h.remote, null, null, NOW + 1002, randomBytes),
+  );
+  await h.service.receive("peer", latest);
+  assert.equal(displayedLocation(h), undefined);
+  const newer = createLocation(
+    h.remote,
+    syntheticPoint(NOW + 1003),
+    null,
+    NOW + 1003,
+    randomBytes,
+  );
+  await h.service.receive("peer", newer);
+  h.service.disconnect("peer");
+  await h.service.refresh();
+  assert.equal(displayedLocation(h), undefined);
+  await h.connect();
+  await h.service.receive("peer", newer);
+  assert.equal(displayedLocation(h), undefined);
+});
+test("pin expiry respects original capture age; scope reset and restart cannot retain locations", async (t) => {
+  const h = fixture();
+  t.after(() => h.service.settle());
+  await h.connect();
+  h.setNow(NOW + 119000);
+  await h.service.receive(
+    "peer",
+    createLocation(h.remote, syntheticPoint(), null, NOW + 119000, randomBytes),
+  );
+  assert.ok(displayedLocation(h));
+  h.setNow(NOW + 120000);
+  await h.service.tick();
+  assert.equal(displayedLocation(h), undefined);
+  await h.service.receive(
+    "peer",
+    createLocation(
+      h.remote,
+      syntheticPoint(NOW + 120000),
+      null,
+      NOW + 120000,
+      randomBytes,
+    ),
+  );
+  assert.ok(displayedLocation(h));
+  h.setScope("a".repeat(64));
+  await h.service.refresh();
+  assert.equal(displayedLocation(h), undefined);
+  assert.ok(h.repository.contacts.every((person) => !("location" in person)));
+  assert.equal(h.repository.messages.size, 0);
+});
+test("opt-out during an in-flight location sends a newer withdrawal and shutdown drains it", async () => {
+  const h = fixture();
+  await h.connect();
+  const gate = deferred();
+  h.locationGate(gate.promise);
+  h.setLocation(syntheticPoint());
+  const sharing = h.service.announceLocation();
+  await turn();
+  h.setLocation(null);
+  const withdrawal = h.service.announceLocation();
+  gate.resolve();
+  await Promise.all([sharing, withdrawal]);
+  const updates = locationsSent(h).map((message) =>
+    verifyLocation(message.wire, NOW)!,
+  );
+  assert.equal(updates.length, 2);
+  assert.ok(updates[0].location);
+  assert.equal(updates[1].location, null);
+  assert.ok(updates[1].createdAt > updates[0].createdAt);
+  const gate2 = deferred();
+  h.locationGate(gate2.promise);
+  h.setLocation(syntheticPoint());
+  const pending = h.service.announceLocation();
+  await turn();
+  let settled = false;
+  const done = h.service.settle().then(() => {
+    settled = true;
+  });
+  await turn();
+  assert.equal(settled, false);
+  gate2.resolve();
+  await Promise.all([pending, done]);
+  assert.equal(settled, true);
+});
+test("stale own GPS withdraws instead of repeatedly extending its lifetime", async (t) => {
+  const h = fixture();
+  t.after(() => h.service.settle());
+  h.setLocation(syntheticPoint());
+  await h.connect();
+  h.setNow(NOW + 120000);
+  await h.service.tick();
+  assert.equal(
+    verifyLocation(locationsSent(h).at(-1)!.wire, NOW + 120000)?.location,
+    null,
+  );
+});
+
+test("opt-out during a multi-peer broadcast prevents new disclosures to remaining peers", async (t) => {
+  const h = fixture();
+  t.after(() => h.service.settle());
+  await h.connect();
+  await h.service.connect("peer2");
+  await h.service.receive("peer2", h.presence());
+  const gate = deferred();
+  h.locationGate(gate.promise);
+  h.setLocation(syntheticPoint());
+  const publishing = h.service.announceLocation();
+  await turn();
+  h.setLocation(null);
+  const withdrawing = h.service.announceLocation();
+  gate.resolve();
+  await Promise.all([publishing, withdrawing]);
+  const positive = locationsSent(h).filter(
+    (message) => verifyLocation(message.wire, NOW)?.location,
+  );
+  assert.deepEqual(
+    positive.map((message) => message.peerId),
+    ["peer"],
+    "only the already-started native send may disclose; opt-out cancels the remaining peers",
+  );
+  assert.equal(
+    verifyLocation(locationsSent(h).at(-1)!.wire, NOW)?.location,
+    null,
+  );
 });
