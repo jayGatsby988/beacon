@@ -19,7 +19,6 @@ import { colors as c } from "../src/theme/tokens";
 export default function Groups() {
   const b = useBeacon();
   const [mode, setMode] = useState<"create" | "join" | null>(null);
-  const [showCode, setShowCode] = useState(false);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const action = useAction();
@@ -38,7 +37,6 @@ export default function Groups() {
       setName("");
       setCode("");
       setMode(null);
-      setShowCode(false);
     });
   return (
     <Screen back title="Groups">
@@ -102,18 +100,6 @@ export default function Groups() {
           >
             Share invite
           </Button>
-          <TextButton onPress={() => setShowCode((value) => !value)}>
-            {showCode ? "Hide code" : "Show code"}
-          </TextButton>
-          {showCode && (
-            <Text
-              selectable
-              accessibilityLabel="Group invite code"
-              style={[styles.caption, { color: c.text }]}
-            >
-              {selected.inviteCode}
-            </Text>
-          )}
         </Card>
       )}
       <ErrorNotice message={action.error} />

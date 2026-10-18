@@ -249,10 +249,8 @@ function CallSession({
                       : "End call"}
               </Text>
             </Pressable>
-            {!terminal && (
-              <Text style={s.footnote}>
-                Keep both iPhones nearby and Beacon open.
-              </Text>
+            {call.status === "ringing" && (
+              <Text style={s.footnote}>Keep Beacon open.</Text>
             )}
           </View>
         </ScrollView>

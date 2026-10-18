@@ -164,8 +164,8 @@ export default function Home() {
                 ? "Turn on Bluetooth to share your SOS."
                 : "Enable Bluetooth to share your SOS."}
           </Text>
-          <TextButton onPress={() => router.push("/network")}>
-            Bluetooth settings
+          <TextButton onPress={() => router.push("/settings")}>
+            Settings
           </TextButton>
         </View>
       )}

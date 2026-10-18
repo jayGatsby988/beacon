@@ -79,3 +79,17 @@ Screenshots were captured through Device Hub's Screenshot button and copied unch
 | Corrected keyboard layout | [settings-keyboard.png](screenshots/simplified/settings-keyboard.png) |
 
 No peers, receipts, or call states were injected. No cloud sync or physical-phone interaction occurred. Bluetooth calls are unsupported in this old simulator native build; this pass establishes neither audio transport nor physical-device delivery.
+
+## Removal pass — October 18, approximately 00:33
+
+The user requested actual removal of excess controls after the preceding collapsed-settings approach. Settings now contains only the profile name, Nearby sharing toggle, and Phone permissions action. Cloud configuration, custom map download controls, diagnostics, history links, and connection-status links are removed from the visible app flow. Their underlying routes/storage/transport remain intact and unlinked; they are not presented as retained user-facing features.
+
+Request details retain receipt-versus-volunteer-confirmation distinctions, offer/accept/close actions, and the reported-location map. Request IDs, history links, manual Mark as seen, and seen counts were removed. Opening another participant's active request now triggers an idempotent acknowledgment in the background, guarded by request ID; this last effect passed TypeScript and lint but was added after the simulator bundle used for the following Home/Settings screenshots.
+
+Fresh current visual code was exported into the same old simulator native app. Actual Home and the three-control Settings screen rendered without clipping. Editing a temporary name showed Save name above the software keyboard; the draft was restored without saving, and the app was left on Home. No SOS, peer, or call was generated. Native-call verification is outside this simulator pass.
+
+- [Current Home](screenshots/simplified/home-core.png)
+- [Current Settings](screenshots/simplified/settings-core.png)
+- [Current Settings with keyboard](screenshots/simplified/settings-core-keyboard.png)
+
+All changed UI files passed scoped ESLint; mobile TypeScript passed after the automatic acknowledgment addition. No production source edits followed this freeze.

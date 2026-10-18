@@ -22,10 +22,10 @@ export function RequestCard({ request }: { request: RequestView }) {
   const status =
     request.mine && request.status === "active"
       ? request.transport === "received"
-        ? "Receipt confirmed"
+        ? "Received by a participant"
         : request.transport === "forwarded"
-          ? "Forwarded · awaiting receipt"
-          : "Waiting for connection"
+          ? "Passed to a relay"
+          : "Waiting for a connection"
       : statusNames[request.status];
   return (
     <Pressable

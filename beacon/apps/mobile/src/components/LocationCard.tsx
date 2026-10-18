@@ -15,12 +15,6 @@ export function LocationCard({
   const coordinates = hasCoordinates
     ? `${location.latitude!.toFixed(5)}, ${location.longitude!.toFixed(5)}`
     : undefined;
-  const source =
-    location.source === "device"
-      ? "Device report"
-      : location.source === "manual"
-        ? "Manual report"
-        : "Location unavailable";
   return (
     <Card style={{ padding: 0, overflow: "hidden", gap: 0 }}>
       <View style={{ padding: 16, gap: 6 }}>
@@ -40,7 +34,7 @@ export function LocationCard({
         )}
         {location.source !== "unavailable" && (
           <Text style={styles.caption}>
-            {source} · {formatReportTime(location.capturedAt)} · Not live
+            {formatReportTime(location.capturedAt)} · Not live
             {location.accuracy != null
               ? ` · ±${Math.round(location.accuracy)} m`
               : ""}

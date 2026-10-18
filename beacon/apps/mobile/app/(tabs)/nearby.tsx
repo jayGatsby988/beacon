@@ -118,8 +118,8 @@ export default function Nearby() {
                     : "Enable sharing to find people."}
           </Text>
           {!b.relayRunning && b.bluetooth !== "unsupported" && (
-            <TextButton onPress={() => router.push("/network")}>
-              Bluetooth settings
+            <TextButton onPress={() => router.push("/settings")}>
+              Settings
             </TextButton>
           )}
         </View>

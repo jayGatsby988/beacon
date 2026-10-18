@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { ChevronDown, ChevronUp } from "lucide-react-native";
@@ -29,7 +29,28 @@ export default function RequestDetails() {
   const action = useAction();
   const [note, setNote] = useState("");
   const [showNote, setShowNote] = useState(false);
-  const [seenRequestId, setSeenRequestId] = useState<string>();
+  const [receiptError, setReceiptError] = useState<string>();
+  const markedRequests = useRef(new Set<string>());
+  const markSeen = b.markSeen;
+  const openedRequestId =
+    r && !r.mine && (r.status === "active" || r.status === "accepted")
+      ? r.id
+      : undefined;
+  useEffect(() => {
+    setReceiptError(undefined);
+    if (!openedRequestId || markedRequests.current.has(openedRequestId)) return;
+    markedRequests.current.add(openedRequestId);
+    let current = true;
+    void markSeen(openedRequestId).catch((error: unknown) => {
+      if (current)
+        setReceiptError(
+          error instanceof Error ? error.message : "Could not confirm receipt.",
+        );
+    });
+    return () => {
+      current = false;
+    };
+  }, [openedRequestId, markSeen]);
   if (!r)
     return (
       <Screen back title="Request">
@@ -78,21 +99,13 @@ export default function RequestDetails() {
                     : "Waiting for a connection"
             }
             detail={
-              r.transport === "received"
-                ? `${r.recipientCount} ${r.recipientCount === 1 ? "participant" : "participants"} confirmed saving the request.`
+              closed || r.transport === "received"
+                ? undefined
                 : r.transport === "forwarded"
-                  ? "Forwarded; no recipient receipt recorded."
-                  : closed
-                    ? "Saved on this phone; no recipient receipt recorded."
-                    : "Saved on this phone."
+                  ? "Not yet received by a participant."
+                  : "Saved on this phone."
             }
           />
-          {r.seenCount > 0 && (
-            <Text style={styles.caption}>
-              Seen by {r.seenCount}{" "}
-              {r.seenCount === 1 ? "participant" : "participants"}.
-            </Text>
-          )}
         </Card>
       )}
 
@@ -170,7 +183,12 @@ export default function RequestDetails() {
                   title={
                     offer.assignmentReceived
                       ? "Volunteer confirmed"
-                      : "Offer accepted · awaiting volunteer receipt"
+                      : "Offer accepted"
+                  }
+                  detail={
+                    offer.assignmentReceived
+                      ? undefined
+                      : "Waiting for volunteer confirmation."
                   }
                 />
               ) : r.mine && !accepted ? (
@@ -187,7 +205,7 @@ export default function RequestDetails() {
                 <Text style={styles.caption}>
                   {accepted
                     ? "Another offer was selected."
-                    : "Awaiting requester acceptance."}
+                    : "Waiting for acceptance."}
                 </Text>
               )}
             </Card>
@@ -237,38 +255,13 @@ export default function RequestDetails() {
         </View>
       )}
 
-      {!r.mine && !closed ? (
-        seenRequestId === r.id ? (
-          <Text style={styles.caption}>Seen acknowledgment saved.</Text>
-        ) : (
-          <TextButton
-            onPress={() =>
-              action.run(async () => {
-                await b.markSeen(r.id);
-                setSeenRequestId(r.id);
-              })
-            }
-          >
-            Mark as seen
-          </TextButton>
-        )
-      ) : null}
       {r.pendingUpdate && (
         <Text style={styles.caption}>
-          Latest update saved here; other phones may still show an earlier
-          state.
+          Update waiting to be shared. Others may still see the old request.
         </Text>
       )}
-      <ErrorNotice message={action.error} />
+      <ErrorNotice message={action.error || receiptError} />
       <LocationCard location={r.location} map={b.map} />
-      <View style={{ gap: 2 }}>
-        <Text style={styles.caption}>
-          Updated {formatTime(r.updatedAt)} · {r.id.slice(0, 8).toUpperCase()}
-        </Text>
-        <TextButton onPress={() => router.push("/history")}>
-          Recorded history
-        </TextButton>
-      </View>
     </Screen>
   );
 }
