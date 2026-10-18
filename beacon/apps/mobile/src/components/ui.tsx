@@ -1,6 +1,7 @@
 import React, { ReactNode, useState, useRef } from "react";
 import {
   ActivityIndicator,
+  Animated,
   AccessibilityInfo,
   Pressable,
   ScrollView,
@@ -30,6 +31,7 @@ import {
 import Svg, { Path } from "react-native-svg";
 import { colors as c, fonts } from "../theme/tokens";
 import MainHeader from "./MainHeader";
+import { usePressFeedback } from "./Motion";
 
 export function Label({
   children,
@@ -91,10 +93,11 @@ export function BeaconMark({
   );
 }
 export function Brand() {
+  const { width, fontScale } = useWindowDimensions();
   return (
     <View style={styles.brand}>
-      <BeaconMark />
-      <Text maxFontSizeMultiplier={1.4} style={styles.wordmark}>
+      {width >= 375 && fontScale <= 1.4 && <BeaconMark />}
+      <Text numberOfLines={1} maxFontSizeMultiplier={1.4} style={styles.wordmark}>
         Beacon
       </Text>
     </View>
@@ -159,6 +162,8 @@ export function Screen({
   footer,
   main = false,
   hideSettings = false,
+  scroll = true,
+  contentStyle,
 }: {
   children: ReactNode;
   back?: boolean;
@@ -167,15 +172,18 @@ export function Screen({
   footer?: ReactNode;
   main?: boolean;
   hideSettings?: boolean;
+  scroll?: boolean;
+  contentStyle?: StyleProp<ViewStyle>;
 }) {
   const insets = useSafeAreaInsets();
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       <TopBar back={back} title={title} network={network} main={main} hideSettings={hideSettings} />
-      <ScrollView
+      {scroll ? <ScrollView
         contentContainerStyle={[
           styles.content,
           { paddingBottom: 20 + insets.bottom },
+          contentStyle,
         ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -183,7 +191,7 @@ export function Screen({
         keyboardDismissMode="interactive"
       >
         {children}
-      </ScrollView>
+      </ScrollView> : <View style={[styles.content, { flex: 1, minHeight: 0, paddingBottom: 12 }, contentStyle]}>{children}</View>}
       {footer}
     </SafeAreaView>
   );
@@ -227,11 +235,15 @@ export function Button({
   disabled?: boolean;
   icon?: boolean;
 }) {
+  const motion = usePressFeedback();
   return (
+    <Animated.View style={motion.style}>
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ disabled: disabled || busy, busy }}
       onPress={onPress}
+      onPressIn={motion.onPressIn}
+      onPressOut={motion.onPressOut}
       disabled={disabled || busy}
       style={({ pressed }) => [
         styles.button,
@@ -251,6 +263,7 @@ export function Button({
           <ArrowRight size={21} color={secondary ? c.text : c.onAction} />
       ) : null}
     </Pressable>
+    </Animated.View>
   );
 }
 export function TextButton({
@@ -458,8 +471,9 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
   },
-  brand: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
+  brand: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1, minWidth: 0 },
   wordmark: {
+    flexShrink: 1,
     fontFamily: fonts.headline,
     fontSize: 28,
     letterSpacing: -0.9,

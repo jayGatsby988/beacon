@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { useMemo, useState } from "react";
+import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { ArrowUpRight, Map, Users } from "lucide-react-native";
 import { useBeacon } from "../../src/services/BeaconContext";
@@ -8,6 +8,7 @@ import AudiencePicker from "../../src/components/AudiencePicker";
 import ConnectionControl from "../../src/components/ConnectionControl";
 import { RequestCard } from "../../src/components/RequestCard";
 import { colors as c, fonts } from "../../src/theme/tokens";
+import { usePressFeedback } from "../../src/components/Motion";
 
 export default function Home() {
   const b = useBeacon();
@@ -16,6 +17,8 @@ export default function Home() {
 
 function HelpContent({ b }: { b: ReturnType<typeof useBeacon> }) {
   const action = useAction();
+  const [note, setNote] = useState("");
+  const sosMotion = usePressFeedback();
   const { active, incoming } = useMemo(() => {
     const current = b.requests.filter((request) =>
       (request.groupId ?? null) === b.activeGroupId &&
@@ -27,7 +30,8 @@ function HelpContent({ b }: { b: ReturnType<typeof useBeacon> }) {
   }, [b.requests, b.activeGroupId]);
   const connected = b.people.filter((person) => person.nodeId !== b.nodeId && person.scope === b.activeGroupId && person.connected).length;
   const send = () => action.run(async () => {
-    const id = await b.sendSOS({ category: "other" });
+    const id = await b.sendSOS({ category: "other", note: note.trim() || undefined });
+    setNote("");
     router.push("/request/" + id);
   });
   return (
@@ -43,12 +47,26 @@ function HelpContent({ b }: { b: ReturnType<typeof useBeacon> }) {
             <Text accessibilityRole="header" style={s.title}>Need help?</Text>
             <AudiencePicker label="Send SOS to" compact />
           </View>
-          <Pressable
+          <TextInput
+            accessibilityLabel="SOS message, optional"
+            placeholder="What happened? (optional)"
+            placeholderTextColor={c.muted}
+            selectionColor={c.redLabel}
+            value={note}
+            onChangeText={setNote}
+            maxLength={140}
+            editable={!action.busy}
+            returnKeyType="done"
+            style={s.messageInput}
+          />
+          <Animated.View style={sosMotion.style}><Pressable
             accessibilityRole="button"
             accessibilityLabel="Send SOS now"
             accessibilityHint="Saves your help request immediately and queues it for people in the selected audience. Does not call emergency services."
             accessibilityState={{ busy: action.busy, disabled: action.busy }}
             onPress={send}
+            onPressIn={sosMotion.onPressIn}
+            onPressOut={sosMotion.onPressOut}
             disabled={action.busy}
             style={({ pressed }) => [s.sos, pressed && s.pressedSOS, action.busy && s.disabled]}
           >
@@ -57,7 +75,7 @@ function HelpContent({ b }: { b: ReturnType<typeof useBeacon> }) {
               {action.busy && <ActivityIndicator color={c.onAction} size="small" />}
               <Text maxFontSizeMultiplier={1.4} style={s.sosHint}>{action.busy ? "Saving request…" : "Send request"}</Text>
             </View>
-          </Pressable>
+          </Pressable></Animated.View>
           <Text style={s.safety}>Does not call emergency services.</Text>
         </View>
       )}
@@ -87,12 +105,13 @@ const s = StyleSheet.create({
   section: { gap: 14 },
   hero: { gap: 14 },
   heading: { gap: 2 },
+  messageInput: { minHeight: 52, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.card, paddingHorizontal: 15, paddingVertical: 13, fontFamily: fonts.body, fontSize: 15, lineHeight: 22, color: c.text },
   title: { fontFamily: fonts.headline, fontSize: 42, lineHeight: 48, letterSpacing: -1.2, color: c.text },
   sos: { minHeight: 180, paddingHorizontal: 24, paddingVertical: 24, borderRadius: 20, backgroundColor: c.red, alignItems: "center", justifyContent: "center", gap: 2 },
   sosText: { fontFamily: fonts.headline, fontSize: 64, lineHeight: 72, color: c.onAction, textAlign: "center", letterSpacing: -1.5 },
   sosLabel: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   sosHint: { fontFamily: fonts.medium, fontSize: 19, lineHeight: 27, color: c.onAction, textAlign: "center" },
-  pressedSOS: { backgroundColor: "#B82931", transform: [{ scale: 0.985 }] },
+  pressedSOS: { backgroundColor: "#B82931" },
   disabled: { opacity: 0.7 },
   safety: { fontFamily: fonts.body, fontSize: 12, lineHeight: 18, color: c.secondary, textAlign: "center" },
   shortcuts: { flexDirection: "row", flexWrap: "wrap", gap: 10 },

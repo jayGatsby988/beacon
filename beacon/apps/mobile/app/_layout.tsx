@@ -8,6 +8,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { BeaconProvider } from "../src/services/BeaconContext";
 import CallOverlay from "../src/components/CallOverlay";
 import { colors } from "../src/theme/tokens";
+import { MotionProvider, useReducedMotion } from "../src/components/Motion";
 export default function RootLayout() {
   useFonts({
     "Inter-Regular": Inter_400Regular,
@@ -17,13 +18,21 @@ export default function RootLayout() {
   });
   return (
     <SafeAreaProvider>
+      <MotionProvider><Navigation /></MotionProvider>
+    </SafeAreaProvider>
+  );
+}
+function Navigation() {
+  const reducedMotion = useReducedMotion();
+  return (
       <BeaconProvider>
         <StatusBar style="light" />
         <Stack
           screenOptions={{
             headerShown: false,
             contentStyle: { backgroundColor: colors.background },
-            animation: "none",
+            animation: reducedMotion ? "none" : "fade",
+            animationDuration: 140,
           }}
         >
           <Stack.Screen name="index" />
@@ -40,6 +49,5 @@ export default function RootLayout() {
         </Stack>
         <CallOverlay />
       </BeaconProvider>
-    </SafeAreaProvider>
   );
 }

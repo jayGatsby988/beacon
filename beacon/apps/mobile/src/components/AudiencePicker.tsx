@@ -6,9 +6,11 @@ import { router } from "expo-router";
 import { useBeacon } from "../services/BeaconContext";
 import { ErrorNotice, useAction } from "./ui";
 import { colors as c, fonts } from "../theme/tokens";
+import { useReducedMotion } from "./Motion";
 
 export default function AudiencePicker({ label = "Audience", compact = false }: { label?: string; compact?: boolean }) {
   const b = useBeacon();
+  const reducedMotion = useReducedMotion();
   const [open, setOpen] = useState(false);
   const action = useAction();
   const insets = useSafeAreaInsets();
@@ -26,7 +28,7 @@ export default function AudiencePicker({ label = "Audience", compact = false }: 
         <Text style={[s.triggerText, compact && s.compactText]}>{compact ? "To " : ""}{b.activeGroupId ? name : compact ? "everyone nearby" : "Everyone nearby"}</Text>
         <ChevronDown size={16} color={c.secondary} />
       </Pressable>
-      <Modal visible={open} transparent animationType="none" onRequestClose={close}>
+      <Modal visible={open} transparent animationType={reducedMotion ? "none" : "fade"} onRequestClose={close}>
         <View style={s.overlay}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close audience selection" disabled={action.busy} onPress={close} style={StyleSheet.absoluteFill} />
           <View accessibilityViewIsModal style={[s.sheet, { paddingBottom: 16 + insets.bottom }]}>

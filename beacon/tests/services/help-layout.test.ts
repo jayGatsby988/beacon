@@ -34,11 +34,13 @@ function helpScreen(getState: () => any, requestId?: string) {
       return {
         Linking: { openSettings: async () => { nativeActions.push("openSettings"); } },
         ActivityIndicator: () => null,
+        Animated: { View: container },
         useWindowDimensions: () => ({ width: 390, height: 844, fontScale: 1 }),
         View: container,
         ScrollView: container,
         Modal: ({ visible, children }: any) => visible ? container({ children }) : null,
         Text: text,
+        TextInput: () => null,
         Pressable: button,
         StyleSheet: { create: (value: unknown) => value },
       };
@@ -55,6 +57,7 @@ function helpScreen(getState: () => any, requestId?: string) {
     if (name.endsWith("/components/RequestCard")) return cards;
     if (name.endsWith("/components/AudiencePicker")) return audience;
     if (name === "react-native-safe-area-context") return { useSafeAreaInsets: () => ({ bottom: 0 }) };
+    if (name === "./Motion" || name.endsWith("/components/Motion")) return { useReducedMotion: () => true, usePressFeedback: () => ({ style: {}, onPressIn: () => {}, onPressOut: () => {} }) };
     if (name === "./ui" || name.endsWith("/components/ui"))
       return {
         Screen: container,
@@ -313,6 +316,50 @@ test("request details never expose accept actions for another requester or a clo
     ui.render();
     assert.equal(ui.hasAction("Accept Alex"), false);
   }
+});
+
+test("request location opens the shared map directly with the selected request", async () => {
+  const r = request("located-request", null, { location: { source: "device", latitude: 47.65, longitude: -122.30, capturedAt: 100, place: "North entrance" } });
+  const ui = helpScreen(() => state([r]), r.id);
+  const html = ui.render();
+  assert.match(html, /North entrance/);
+  assert.match(html, /Not live/);
+  assert.deepEqual(ui.routes, [], "viewing request details must not automatically leave the request");
+  assert.equal(ui.hasAction("Location map"), false, "no intermediate map disclosure");
+  await ui.press("View location on map");
+  assert.deepEqual(JSON.parse(JSON.stringify(ui.routes)), [
+    { pathname: "/(tabs)/nearby", params: { view: "map", requestId: r.id } },
+  ]);
+});
+
+test("requests without a fix explain missing location without opening an empty map", () => {
+  const r = request("no-location", null, { note: "", location: { source: "unavailable" } });
+  const ui = helpScreen(() => state([r]), r.id);
+  assert.match(ui.render(), /No location attached/);
+  assert.equal(ui.hasAction("View location on map"), false);
+  assert.equal(ui.hasAction("Offer help"), true, "missing GPS does not block helping");
+
+  r.location = { source: "manual", place: "Library entrance" };
+  const namedPlace = ui.render();
+  assert.match(namedPlace, /Library entrance/);
+  assert.doesNotMatch(namedPlace, /No location attached/);
+  assert.equal(ui.hasAction("View location on map"), false, "a place description alone has no map coordinate");
+});
+
+test("closed request titles remain neutral and preserve their actual final status", () => {
+  const r = request("history", null, { name: "Maya" });
+  const ui = helpScreen(() => state([r]), r.id);
+  assert.match(ui.render(), /Maya needs help/);
+  for (const status of ["completed", "canceled", "expired"] as const) {
+    r.status = status;
+    const html = ui.render();
+    assert.match(html, /Maya’s request/);
+    assert.doesNotMatch(html, /Maya needs help/);
+    assert.match(html, new RegExp(status[0].toUpperCase() + status.slice(1)));
+    assert.equal(ui.hasAction("Offer help"), false);
+  }
+  r.mine = true;
+  assert.match(ui.render(), /Your request/);
 });
 
 test("an incoming request opens the named requester chat only in the matching audience", async () => {
