@@ -1,6 +1,6 @@
 # Beacon API, Tiger Data and Vultr
 
-The repository contains an Express 5 TypeScript API, transactional PostgreSQL ingestion, Timescale migrations, authenticated replay, and a Docker/Caddy deployment recipe. **No paid resources were provisioned, no service was deployed, and no Tiger database connection is claimed.** API TypeScript checking passed and six API contract/security/replay-size tests passed using an injectable in-memory repository; one opt-in Timescale integration test was skipped because no test database was supplied. The integration test must pass against an actual disposable Timescale instance before claiming database validation. A Docker build and a live HTTPS smoke test are separate evidence gates.
+The repository contains an Express 5 TypeScript API, transactional PostgreSQL ingestion, Timescale migrations, authenticated replay, and a Docker/Caddy deployment recipe. **No paid resources were provisioned and no service was deployed.** An isolated local PostgreSQL 18.6 / TimescaleDB 2.30.2 run passed the complete workspace checks: 48 tests passed, none skipped, TypeScript passed, and ESLint passed. Real HTTP checks also passed authenticated upload/retry/replay/summary, token revocation, observer binding, incident authorization, and 30-day-late aggregate refresh. The temporary database was stopped and removed. See [reproducible local validation and evidence](LOCAL_TIMESCALE_VALIDATION.md). Tiger Cloud connectivity, a Docker build, and live deployed HTTPS remain separate, unverified evidence gates.
 
 ## Contract and trust
 

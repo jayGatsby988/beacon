@@ -1,13 +1,44 @@
-import {createApp} from './app.js';
-import {createPool,PgRepository,refreshAggregates} from './repository.js';
-const pool=createPool();const repository=new PgRepository(pool);
-const log=(entry:Record<string,unknown>)=>console.log(JSON.stringify(entry));
-pool.on('error',()=>log({event:'database_pool_error'}));
-const port=Number(process.env.PORT??3000);if(!Number.isInteger(port)||port<1||port>65535)throw new Error('Invalid PORT');
-const server=createApp(repository,{log}).listen(port,'0.0.0.0',()=>log({event:'listening',port}));
-server.requestTimeout=30_000;server.headersTimeout=15_000;
-let refreshing=false;
-const refresh=async()=>{if(refreshing)return;refreshing=true;try{const count=await refreshAggregates(pool);if(count)log({event:'aggregate_refresh',buckets:count});}catch{log({event:'aggregate_refresh_failed',retry:true});}finally{refreshing=false;}};
-const timer=setInterval(()=>{void refresh();},60_000);timer.unref();void refresh();
-let stopping=false;
-for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{if(stopping)return;stopping=true;clearInterval(timer);server.close(()=>{void pool.end().then(()=>process.exit(0));});setTimeout(()=>process.exit(1),10_000).unref();});
+import { createApp } from "./app.js";
+import { createPool, PgRepository, refreshAggregates } from "./repository.js";
+const pool = createPool();
+const repository = new PgRepository(pool);
+const log = (entry: Record<string, unknown>) =>
+  console.log(JSON.stringify(entry));
+pool.on("error", () => log({ event: "database_pool_error" }));
+const port = Number(process.env.PORT ?? 3000);
+if (!Number.isInteger(port) || port < 1 || port > 65535)
+  throw new Error("Invalid PORT");
+const server = createApp(repository, { log }).listen(port, "0.0.0.0", () =>
+  log({ event: "listening", port }),
+);
+server.requestTimeout = 30_000;
+server.headersTimeout = 15_000;
+let refreshing = false;
+const refresh = async () => {
+  if (refreshing) return;
+  refreshing = true;
+  try {
+    const count = await refreshAggregates(pool);
+    if (count) log({ event: "aggregate_refresh", buckets: count });
+  } catch {
+    log({ event: "aggregate_refresh_failed", retry: true });
+  } finally {
+    refreshing = false;
+  }
+};
+const timer = setInterval(() => {
+  void refresh();
+}, 60_000);
+timer.unref();
+void refresh();
+let stopping = false;
+for (const signal of ["SIGTERM", "SIGINT"])
+  process.on(signal, () => {
+    if (stopping) return;
+    stopping = true;
+    clearInterval(timer);
+    server.close(() => {
+      void pool.end().then(() => process.exit(0));
+    });
+    setTimeout(() => process.exit(1), 10_000).unref();
+  });

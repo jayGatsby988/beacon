@@ -1,0 +1,58 @@
+{
+  "validatorPackage": "@maplibre/maplibre-gl-style-spec",
+  "validatorVersion": "26.4.4",
+  "styleErrors": [],
+  "features": 2764,
+  "geometryCounts": {
+    "LineString/road": 2533,
+    "Polygon/water": 1,
+    "Polygon/building": 198,
+    "Polygon/park": 32
+  },
+  "positions": 14208,
+  "rings": 231,
+  "clockwiseExteriorRings": 168,
+  "duplicateIds": 0,
+  "bounds": [
+    -122.315468,
+    47.6483965,
+    -122.2973447,
+    47.6612704
+  ],
+  "geometryErrors": [],
+  "layerChecks": [
+    {
+      "id": "buildings",
+      "type": "fill",
+      "matchedFeatures": 198,
+      "incompatibleGeometry": 0
+    },
+    {
+      "id": "parks",
+      "type": "fill",
+      "matchedFeatures": 32,
+      "incompatibleGeometry": 0
+    },
+    {
+      "id": "water",
+      "type": "fill",
+      "matchedFeatures": 1,
+      "incompatibleGeometry": 0
+    },
+    {
+      "id": "roads",
+      "type": "line",
+      "matchedFeatures": 2533,
+      "incompatibleGeometry": 0
+    }
+  ],
+  "renderingResources": {
+    "glyphs": null,
+    "sprite": null,
+    "imports": null,
+    "networkSourceUrls": [],
+    "symbolLayers": 0
+  },
+  "remoteStringReferences": [],
+  "sourceAttribution": "© OpenStreetMap contributors · ODbL"
+}

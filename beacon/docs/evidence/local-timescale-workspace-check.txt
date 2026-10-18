@@ -1,0 +1,67 @@
+
+> beacon-workspace@0.1.0 typecheck
+> tsc -p apps/mobile/tsconfig.json --noEmit && tsc -p apps/api/tsconfig.json --noEmit
+
+
+> beacon-workspace@0.1.0 test
+> tsx --test tests/**/*.test.ts apps/api/tests/*.test.ts
+
+✔ requires valid credentials and incident membership for upload and replay (53.561208ms)
+✔ returns durable acceptance/duplicate outcomes and rejects impersonated observers (14.487375ms)
+✔ validates signatures while allowing enrolled devices to upload observed third-party envelopes (27.69325ms)
+✔ bounds batch size, future timestamps, malformed envelopes and extra fields (8.3845ms)
+✔ health and readiness differ when storage fails; cloud replay remains explicitly incomplete (9.653084ms)
+✔ Timescale: concurrent retry, transaction rollback, changed-ID rejection and late aggregate refresh (201.976083ms)
+✔ replay fits mobile response limit even with maximum-length Unicode envelope fields (69.093167ms)
+✔ signed display names reject unsigned whitespace mutation and padding bypass (86.720417ms)
+✔ inventories cannot grow per-session suppression memory beyond durable capacity (310.53875ms)
+✔ a repeated ID in one missing request does not amplify a record 64 times (13.144166ms)
+✔ replaying the same signed missing control does not trigger repeated retransmission (13.363958ms)
+✔ simultaneous endpoint acknowledgments create only one durable receipt (3.4365ms)
+✔ a valid outsider signature cannot cancel, complete, or assign another requester (8.483209ms)
+✔ oversized Unicode traffic and rewrapped expired traffic remain rejected (4.327125ms)
+✔ self announcements, changed session identity, unsigned and long-lived controls are rejected (19.096375ms)
+✔ concurrent fresh missing controls cannot retransmit the same record concurrently (36.615667ms)
+✔ duplicate connect events cannot reset rate limits and controls do not create durable records (261.370459ms)
+✔ repeated flushes obey the send budget and resume the durable backlog next minute (606.431667ms)
+✔ queued publish returns after persistence while a native send waits, and surfaces its eventual failure (6.59325ms)
+✔ synthetic three-node mesh uses disk SQLite through relay/requester restarts, return receipts and confirmed assignment (877.401ms)
+✔ Ed25519 RFC 8032 vector and canonical authenticated wire roundtrip (51.91125ms)
+✔ reject malformed, excessive, expired, future and over-hop traffic (22.691292ms)
+✔ A → B → C carries SOS and return endpoint receipt; relay alone never reports delivery (67.131458ms)
+✔ store-carry-forward survives relay restart and receipts return over later contacts (102.495333ms)
+✔ hop limit accepts endpoint but prevents further relay; expired history does not retransmit (26.95825ms)
+✔ only requester assigns; wrong request/endpoint receipts ignored; terminal state resists replay (30.474417ms)
+✔ assignment receipt generated after dependencies arrive out of order (32.66175ms)
+✔ validly signed wrong-request acknowledgment and duplicate packet do not change application state (23.345917ms)
+✔ no location is representable honestly and canonical wire vector remains stable (10.697458ms)
+✔ failed writes remain retryable and never produce endpoint evidence (8.619583ms)
+✔ low priority traffic gets reserved forwarding capacity under receipt backlog (280.245125ms)
+✔ cancel during held style fetch aborts HTTP and prevents native pack creation even if a late response resolves (14.468125ms)
+✔ cancel during held native createPack waits for creation before deleting the resulting pack (6.195084ms)
+✔ late progress and error callbacks cannot revive a removed pack or overwrite a subsequent download (6.3905ms)
+✔ cold and warm native links preserve supported routes and complete request IDs (2.090625ms)
+✔ malformed, encoded and query-based links never reach the downstream URI decoder (0.119584ms)
+✔ unknown schemes, authorities, paths and invalid request IDs fail closed to home (0.073875ms)
+✔ oversized hostile links are rejected before processing their encoded content (0.053583ms)
+✔ confirmed acceptance does not falsely confirm a later cancellation or completion (0.359709ms)
+✔ sync destinations reject plaintext transport, embedded credentials and accidental secret query strings (0.167333ms)
+✔ changing cloud connection discards previous report provenance while keeping the local queue count (1.680084ms)
+✔ injected outbox failure rolls back message, dedup, request state and event; later retry succeeds (87.358417ms)
+✔ disk restart preserves dedup, shorter route and outbox; upload ACK does not become endpoint receipt (29.8845ms)
+✔ retention protects recent received history and pending upload, then cascades eligible deletion (10.170709ms)
+✔ message capacity is checked inside the transaction and preserves existing data (23.299458ms)
+✔ event capacity rolls back forwarding and messages, but permits idempotent existing events (42.549375ms)
+✔ failed uploads back off, preserve local state, bound errors and forced retry selects pending events (9.429917ms)
+✔ concurrent duplicate saves are serialized and invalid local receipt times are rejected (20.378ms)
+ℹ tests 48
+ℹ suites 0
+ℹ pass 48
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1534.411833
+
+> beacon-workspace@0.1.0 lint
+> eslint apps packages tests scripts --max-warnings=0

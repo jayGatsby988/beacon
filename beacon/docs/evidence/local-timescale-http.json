@@ -1,0 +1,27 @@
+{
+  "scope": "Actual local TimescaleDB + Express HTTP; synthetic signed fixtures; not Tiger Cloud/Vultr/hardware",
+  "testedAt": "2026-10-18T03:28:21.151Z",
+  "postgresVersion": "18.6 (Homebrew)",
+  "timescaleVersion": "2.30.2",
+  "hypertables": [
+    {
+      "hypertable_schema": "public",
+      "hypertable_name": "events"
+    }
+  ],
+  "healthStatus": 200,
+  "readinessStatus": 200,
+  "acceptedEvents": 2,
+  "duplicateEvents": 2,
+  "spoofedObserverRejected": true,
+  "unauthorizedStatus": 401,
+  "crossIncidentStatus": 403,
+  "revokedTokenStatus": 401,
+  "replayCount": 2,
+  "requestCount": 1,
+  "requestsWithVerifiedRecipientReceipt": 1,
+  "lateUploadDays": 30,
+  "refreshedBuckets": 1,
+  "historicalAggregateObservations": 2,
+  "aggregateRefreshPending": false
+}

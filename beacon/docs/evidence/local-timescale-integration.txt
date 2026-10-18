@@ -1,0 +1,9 @@
+✔ Timescale: concurrent retry, transaction rollback, changed-ID rejection and late aggregate refresh (70.144209ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 158.756417

@@ -1,0 +1,42 @@
+name: Beacon checks
+
+on:
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: beacon
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beacon-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: beacon/package-lock.json
+      - run: npm ci
+      - run: bash scripts/check-workspace.sh
+
+  swift-framing:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 scripts/test-native-framing.py --language swift

@@ -1,0 +1,14 @@
+{
+  "nodeVersion": "v24.19.0",
+  "port": 55432,
+  "scope": "isolated local Timescale; synthetic data only",
+  "initdb": 0,
+  "start": 0,
+  "create-database": 0,
+  "migration": 0,
+  "migration-idempotent": 0,
+  "workspace-check": 0,
+  "http-smoke": 0,
+  "stop": 0,
+  "daemonStopped": true
+}
