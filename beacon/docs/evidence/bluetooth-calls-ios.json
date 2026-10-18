@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-10-18T07:42:22.240479+00:00",
+  "recordedAt": "2026-10-18T07:46:36.165229+00:00",
   "branch": "codex/beacon",
   "implementationCommit": "94cc544",
   "bundleId": "org.beacon.community.dev",
@@ -17,13 +17,21 @@
     "skipped": 0,
     "typecheck": "passed",
     "lint": "passed",
-    "database": "real local PostgreSQL/TimescaleDB"
+    "database": "real local PostgreSQL/TimescaleDB",
+    "latestRerun": "2026-10-18T07:46:08Z: 116 tests pass, typecheck/lint and real local database HTTP smoke pass"
   },
   "native": {
     "opusFramesEncodedDecoded": 100,
     "cryptoChecks": "passed",
     "realConverterAndProductionPCMScenarios": 22,
-    "physicalDuplexAudioVerified": false
+    "physicalDuplexAudioVerified": false,
+    "productionObjCCodecAndPCM": {
+      "syntheticFrames": 350,
+      "lateSilenceDTXPackets": 94,
+      "speechRMSBeforeSilence": 0.0604,
+      "speechRMSAfterSilence": 0.0635,
+      "result": "passed; local synthetic only"
+    }
   },
   "firstPhysicalTest": {
     "source": "user report",
@@ -39,12 +47,12 @@
       "4800 input frames at 48000 Hz",
       "4096 input frames at 16000 Hz"
     ],
-    "physicalRetest": "pending"
+    "physicalRetest": "user reports continued silence; phone pairing and both build versions not confirmed; captured iPhone18ProMax console has no voice session yet"
   },
   "installation": {
     "iPhone17Pro": "latest corrected/minimal build installed and launched",
     "iPhone17ProMax": "initial voice build installed; correction update blocked by device unavailable",
-    "iPhone18ProMax": "latest corrected/minimal build installed; iOS launch denied pending developer trust/verification; device subsequently unavailable"
+    "iPhone18ProMax": "latest corrected/minimal build installed and launched; Bluetooth service and discovery observed"
   },
   "limits": [
     "No successful physical duplex speech test yet",
@@ -54,14 +62,14 @@
   "latestInstallationCheck": {
     "iPhone18ProMax": {
       "installation": "passed",
-      "launch": "blocked by iOS Security (CoreDevice 10002)",
+      "launch": "passed on subsequent connection",
       "developerMode": "enabled",
       "strictSignatureVerification": "passed",
       "profileDeviceInclusion": "passed",
       "profileAndCertificateValidity": "passed",
       "entitlementCompatibility": "passed",
-      "developerTrust": "phone action requested; not yet confirmed"
+      "developerTrust": "previous iOS Security launch block no longer present"
     },
-    "connectionSnapshot": "all three physical iPhones unavailable after installation"
+    "connectionSnapshot": "iPhone18ProMax connected; iPhone17Pro and iPhone17ProMax unavailable"
   }
 }

@@ -96,6 +96,13 @@ sample conservation, including 4,800 frames at 48 kHz and 4,096 frames at 16 kHz
 plus invalid duration/rate/channel and converted-block bounds. It does not open
 the microphone or use recorded speech.
 
+The production-wrapper regression links the actual `BeaconOpusCodec.m` with its
+VOIP/VOICE/DTX settings and `BeaconVoicePCM`. It passes 350 synthetic
+speech/silence/speech frames with exact framing, 94 late-silence DTX packets,
+and recovered speech RMS of 0.0604 before and 0.0635 after silence. This closes
+the prior gap between the standalone C codec test and the production wrapper;
+it still does not open the microphone, Bluetooth stream, or speaker.
+
 These checks passed on 2026-10-18. They establish codec and cryptographic behavior;
 they do not establish physical L2CAP throughput, speech intelligibility, echo
 cancellation quality, microphone permissions, or background/foreground behavior

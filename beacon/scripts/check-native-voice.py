@@ -35,4 +35,17 @@ with tempfile.TemporaryDirectory(prefix='beacon-voice-check-') as temporary:
     subprocess.run(['xcrun', 'swiftc', str(native / 'BeaconVoicePCM.swift'),
                     str(native / 'tests/BeaconVoicePCMTests.swift'), '-o', str(pcm_test)], check=True)
     subprocess.run([str(pcm_test)], check=True)
+    # Link the real ObjC wrapper, not a second copy of its codec configuration.
+    wrapper_library = area / 'libBeaconVoiceCodec.dylib'
+    subprocess.run(['xcrun', 'clang', '-O2', '-dynamiclib', '-fobjc-arc',
+                    '-DHAVE_CONFIG_H=1', *includes, *sources,
+                    str(native / 'BeaconOpusCodec.m'), '-framework', 'Foundation',
+                    '-o', str(wrapper_library)], check=True)
+    pipeline_test = area / 'codec-pipeline-test'
+    subprocess.run(['xcrun', 'swiftc', '-import-objc-header', str(native / 'BeaconOpusCodec.h'),
+                    str(native / 'BeaconVoicePCM.swift'),
+                    str(native / 'tests/BeaconVoiceCodecPipelineTests.swift'),
+                    '-L', str(area), '-lBeaconVoiceCodec', '-Xlinker', '-rpath', '-Xlinker', str(area),
+                    '-o', str(pipeline_test)], check=True)
+    subprocess.run([str(pipeline_test)], check=True)
 print('Native voice checks passed; temporary executables removed. Radio/audio hardware checks remain separate.')
