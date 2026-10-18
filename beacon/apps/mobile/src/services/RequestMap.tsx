@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, Linking, Pressable } from "react-native";
 import MapLibre from "@maplibre/maplibre-react-native";
 import type { LocationReport, MapState } from "../ui/types";
@@ -19,26 +19,28 @@ export default function RequestMap({
     setFailed(false);
     setSavedFailed(false);
   }, [map.styleUrl, map.bundled, map.updatedAt]);
+  const longitude = location.longitude,
+    latitude = location.latitude;
+  const inside = (area: readonly number[]) =>
+    Number.isFinite(longitude) && Number.isFinite(latitude) &&
+    longitude! >= area[0] && longitude! <= area[2] &&
+    latitude! >= area[1] && latitude! <= area[3];
   const saved =
     (map.status === "ready" || map.savedAvailable === true) &&
     !map.bundled &&
     !!map.styleUrl &&
-    !savedFailed;
+    !savedFailed &&
+    !(map.bounds && inside(CAMPUS_BOUNDS) && !inside(map.bounds));
   const bounds = saved && map.bounds ? map.bounds : CAMPUS_BOUNDS;
-  const longitude = location.longitude,
-    latitude = location.latitude;
-  const within =
-    longitude != null &&
-    latitude != null &&
-    longitude >= bounds[0] &&
-    longitude <= bounds[2] &&
-    latitude >= bounds[1] &&
-    latitude <= bounds[3];
+  const within = inside(bounds);
+  const center = useMemo(() => [longitude!, latitude!], [longitude, latitude]);
   if (
     longitude == null ||
     latitude == null ||
     !Number.isFinite(longitude) ||
     !Number.isFinite(latitude) ||
+    Math.abs(longitude) > 180 ||
+    Math.abs(latitude) > 90 ||
     failed
   )
     return (
@@ -67,7 +69,7 @@ export default function RequestMap({
         pitchEnabled={false}
       >
         <MapLibre.Camera
-          centerCoordinate={[longitude!, latitude!]}
+          centerCoordinate={center}
           zoomLevel={16}
         />
         <MapLibre.ShapeSource
