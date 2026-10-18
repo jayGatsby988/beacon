@@ -4,7 +4,7 @@ Implementation, automated checks, native compilation, and physical acceptance ar
 
 ## Subsequent phone reconnection
 
-After the final recheck, the user connected Darshan's iPhone 17 Pro. The final signed build installed and launched successfully, and a subsequent process query confirmed Beacon still running. Vaibhav's phone remained unavailable. This supersedes the one-phone installation blocker below, but physical direct-message exchange and private-group delivery between two updated phones remain unverified. See [the installation record](NEARBY_GROUPS.md).
+After the final recheck, the user connected Darshan's iPhone 17 Pro, then Pravanram's iPhone 17 Pro Max. The same final signed build installed and launched successfully on each, and subsequent process queries confirmed Beacon still running. Vaibhav's phone remained unavailable. The second phone's read-only database snapshot had intact request/social databases but Nearby sharing disabled; the user was asked to enable it through the app. This supersedes the installation blocker below, but physical direct-message exchange and private-group delivery between the updated phones remain unverified. See [the installation record](NEARBY_GROUPS.md).
 
 ## Final recheck — October 17, 23:45 local
 
