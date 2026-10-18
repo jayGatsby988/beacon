@@ -6,6 +6,7 @@ import { InterTight_900Black } from "@expo-google-fonts/inter-tight";
 import { BarlowCondensed_700Bold } from "@expo-google-fonts/barlow-condensed";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { BeaconProvider } from "../src/services/BeaconContext";
+import { NotificationProvider } from "../src/services/NotificationContext";
 import CallOverlay from "../src/components/CallOverlay";
 import { colors } from "../src/theme/tokens";
 export default function RootLayout() {
@@ -18,27 +19,29 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <BeaconProvider>
-        <StatusBar style="dark" />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: colors.background },
-            animation: "none",
-          }}
-        >
-          <Stack.Screen name="index" />
-          <Stack.Screen name="setup" />
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="request/[id]" />
-          <Stack.Screen name="network" />
-          <Stack.Screen name="history" />
-          <Stack.Screen name="incident" />
-          <Stack.Screen name="settings" />
-          <Stack.Screen name="groups" />
-          <Stack.Screen name="messages" />
-          <Stack.Screen name="chat/[id]" />
-        </Stack>
-        <CallOverlay />
+        <NotificationProvider>
+          <StatusBar style="dark" />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: colors.background },
+              animation: "none",
+            }}
+          >
+            <Stack.Screen name="index" />
+            <Stack.Screen name="setup" />
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="request/[id]" />
+            <Stack.Screen name="network" />
+            <Stack.Screen name="history" />
+            <Stack.Screen name="incident" />
+            <Stack.Screen name="settings" />
+            <Stack.Screen name="groups" />
+            <Stack.Screen name="messages" />
+            <Stack.Screen name="chat/[id]" />
+          </Stack>
+          <CallOverlay />
+        </NotificationProvider>
       </BeaconProvider>
     </SafeAreaProvider>
   );

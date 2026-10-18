@@ -6,6 +6,7 @@ import Svg, { Path } from "react-native-svg";
 import { useBeacon } from "../src/services/BeaconContext";
 import { BeaconMark, Body, Button, Card, ErrorNotice, Field, Screen, styles, useAction } from "../src/components/ui";
 import { colors as c, fonts } from "../src/theme/tokens";
+import NotificationSettings from "../src/components/NotificationSettings";
 
 export default function Setup() {
   const b = useBeacon();
@@ -47,6 +48,7 @@ export default function Setup() {
           </Button>
         )}
       </Card>
+      <NotificationSettings />
       <ErrorNotice message={action.error || b.error} />
       <Button busy={action.busy} onPress={() => action.run(async () => {
         await b.completeSetup(name.trim() || "Participant");

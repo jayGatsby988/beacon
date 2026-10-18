@@ -5,6 +5,7 @@ import { router } from "expo-router";
 import { useBeacon } from "../src/services/BeaconContext";
 import { Body, Button, Card, ErrorNotice, Field, Screen, styles, useAction } from "../src/components/ui";
 import { colors as c, fonts } from "../src/theme/tokens";
+import NotificationSettings from "../src/components/NotificationSettings";
 
 export default function Settings() {
   const b = useBeacon();
@@ -54,6 +55,7 @@ export default function Settings() {
         </View>
         <SettingsLink icon={Bluetooth} title="Phone permissions" detail={b.bluetooth === "poweredOn" ? "Bluetooth is ready" : b.bluetooth === "unsupported" ? "Bluetooth unavailable in this build" : "Check Bluetooth and location access"} last plain disabled={action.busy} onPress={() => action.run(() => Linking.openSettings())} />
       </Card>
+      <NotificationSettings />
       <ErrorNotice message={action.error} />
       <View style={s.section}>
         <Pressable accessibilityRole="button" accessibilityState={{ expanded: advanced }} onPress={() => setAdvanced((value) => !value)} style={s.disclosure}>
