@@ -1,3 +1,4 @@
+import { memo, useMemo } from "react";
 import { router } from "expo-router";
 import { ChevronRight, MessageCircle, Radio } from "lucide-react-native";
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
@@ -7,9 +8,7 @@ import { colors as c, fonts } from "../src/theme/tokens";
 import { deliveryLabel, inboxRows, inboxTime, initials } from "../src/ui/inbox";
 import type { DirectMessageView, PersonView } from "../src/ui/types";
 
-function PersonRow({ person, latest, separated = false }: { person: PersonView; latest?: DirectMessageView; separated?: boolean }) {
-  const { fontScale, width } = useWindowDimensions();
-  const stacked = fontScale >= 1.5 || width < 350;
+const PersonRow = memo(function PersonRow({ person, latest, stacked, separated = false }: { person: PersonView; latest?: DirectMessageView; stacked: boolean; separated?: boolean }) {
   const unread = person.unreadCount;
   const preview = latest ? `${latest.mine ? "You: " : ""}${latest.text}` : "Connected nearby";
   return (
@@ -36,11 +35,16 @@ function PersonRow({ person, latest, separated = false }: { person: PersonView; 
       </View>
     </Pressable>
   );
-}
+});
 
 export default function Messages() {
   const b = useBeacon();
-  const { conversations, connected } = inboxRows(b.people, b.messages, b.activeGroupId);
+  const { fontScale, width } = useWindowDimensions();
+  const stacked = fontScale >= 1.5 || width < 350;
+  const { conversations, connected } = useMemo(
+    () => inboxRows(b.people, b.messages, b.activeGroupId),
+    [b.people, b.messages, b.activeGroupId],
+  );
   const group = b.groups.find((item) => item.id === b.activeGroupId);
   const unread = conversations.reduce((total, row) => total + row.person.unreadCount, 0);
   return (
@@ -49,11 +53,11 @@ export default function Messages() {
         {b.activeGroupId ? group?.name || "Private group" : "Everyone nearby"}{unread > 0 ? ` · ${unread} unread` : ""}
       </Text>
       {conversations.length > 0 && (
-        <View style={s.list}>{conversations.map(({ person, latest }, index) => <PersonRow key={person.nodeId} person={person} latest={latest} separated={index > 0} />)}</View>
+        <View style={s.list}>{conversations.map(({ person, latest }, index) => <PersonRow key={person.nodeId} person={person} latest={latest} stacked={stacked} separated={index > 0} />)}</View>
       )}
       {connected.length > 0 && <>
         <Text accessibilityRole="header" style={s.sectionTitle}>{conversations.length ? "Connected nearby" : "Start a conversation"}</Text>
-        <View style={s.list}>{connected.map((person, index) => <PersonRow key={person.nodeId} person={person} separated={index > 0} />)}</View>
+        <View style={s.list}>{connected.map((person, index) => <PersonRow key={person.nodeId} person={person} stacked={stacked} separated={index > 0} />)}</View>
       </>}
       {!conversations.length && !connected.length && (
         <View style={s.empty}>

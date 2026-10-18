@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { Minus, Plus } from "lucide-react-native";
@@ -20,11 +20,15 @@ function HelpContent({ b }: { b: ReturnType<typeof useBeacon> }) {
   const [note, setNote] = useState("");
   const [place, setPlace] = useState("");
   const action = useAction();
-  const currentRequests = b.requests.filter((request) =>
-    (request.groupId ?? null) === b.activeGroupId &&
-    (request.status === "active" || request.status === "accepted"));
-  const active = currentRequests.find((request) => request.mine);
-  const incoming = currentRequests.filter((request) => !request.mine).sort((a, z) => z.updatedAt - a.updatedAt);
+  const { active, incoming } = useMemo(() => {
+    const currentRequests = b.requests.filter((request) =>
+      (request.groupId ?? null) === b.activeGroupId &&
+      (request.status === "active" || request.status === "accepted"));
+    return {
+      active: currentRequests.find((request) => request.mine),
+      incoming: currentRequests.filter((request) => !request.mine).sort((a, z) => z.updatedAt - a.updatedAt),
+    };
+  }, [b.requests, b.activeGroupId]);
   const send = () => action.run(async () => {
     const id = await b.sendSOS({ category, note: note.trim() || undefined, place: place.trim() || undefined });
     router.push("/request/" + id);
@@ -59,9 +63,9 @@ function HelpContent({ b }: { b: ReturnType<typeof useBeacon> }) {
               <View style={s.categories}>
                 {(["other", "injured", "trapped", "stranded"] as Category[]).map((value) => <Pill key={value} selected={category === value} onPress={() => setCategory(value)}>{value === "other" ? "Other" : value[0].toUpperCase() + value.slice(1)}</Pill>)}
               </View>
-              <Field label="What do you need?" placeholder="A short note (optional)" value={note} onChangeText={setNote} maxLength={140} multiline />
+              <Field label="What do you need?" placeholder="Optional note" value={note} onChangeText={setNote} maxLength={140} multiline />
               <Field label="Where are you?" placeholder="Building or landmark (optional)" value={place} onChangeText={setPlace} maxLength={120} />
-              <Text style={s.caption}>{place.trim() ? "Your landmark will be attached." : b.locationPermission === "granted" ? "Last known location attached, if available." : "Location is optional."}</Text>
+              {!place.trim() && b.locationPermission === "granted" && <Text style={s.caption}>Last known location attached, if available.</Text>}
             </View>
           )}
         </View>

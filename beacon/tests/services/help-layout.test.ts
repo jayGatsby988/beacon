@@ -70,7 +70,7 @@ function helpScreen(getState: () => any, requestId?: string) {
         ErrorNotice: ({ message }: any) =>
           message ? text({ children: message }) : null,
         styles: {},
-        age: () => "recently",
+        formatReportTime: () => "Oct 18, 9:10 AM",
         useAction: () => ({
           busy: false,
           run: async (action: () => Promise<void>) => action(),

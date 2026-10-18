@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Linking, Pressable, StyleSheet, Switch, Text, View, useWindowDimensions } from "react-native";
+import { Alert, Keyboard, Linking, Pressable, StyleSheet, Switch, Text, View, useWindowDimensions } from "react-native";
 import { Bluetooth, ChevronDown, ChevronRight, Clock3, LockKeyhole, Map, Radio, type LucideIcon } from "lucide-react-native";
 import { router } from "expo-router";
 import { useBeacon } from "../src/services/BeaconContext";
@@ -15,32 +15,36 @@ export default function Settings() {
   const [advanced, setAdvanced] = useState(false);
   const action = useAction();
   const hasChanges = name.trim() !== b.displayName;
+  const saveName = () => {
+    if (!hasChanges || action.busy) return;
+    void action.run(async () => {
+      const displayName = name.trim() || "Participant";
+      await b.saveSettings({ displayName });
+      setName(displayName);
+      setEditing(false);
+      Keyboard.dismiss();
+    });
+  };
   const initials = b.displayName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "B";
   return (
-    <Screen back title="Profile & settings">
+    <Screen back title="Profile">
       <View style={[s.identity, stacked && { flexDirection: "column", alignItems: "flex-start" }]}>
         <View style={s.avatar}><Text maxFontSizeMultiplier={1.4} style={s.initials}>{initials}</Text></View>
         <View style={[s.copy, stacked && { flex: 0, width: "100%" }]}>
           <Text style={s.name}>{b.displayName || "Participant"}</Text>
-          <Text style={styles.caption}>Your name on Beacon</Text>
         </View>
         <Pressable accessibilityRole="button" accessibilityLabel={editing ? "Cancel editing name" : "Edit name"} accessibilityState={{ expanded: editing, disabled: action.busy }} disabled={action.busy} onPress={() => { setName(b.displayName); setEditing((value) => !value); }} style={s.edit}><Text style={s.editText}>{editing ? "Cancel" : "Edit"}</Text></Pressable>
       </View>
       {editing && <Card>
-        <Field label="Your name" value={name} onChangeText={setName} maxLength={40} editable={!action.busy} />
-        <Button secondary disabled={!hasChanges} busy={action.busy} onPress={() => action.run(async () => {
-          const displayName = name.trim() || "Participant";
-          await b.saveSettings({ displayName });
-          setName(displayName);
-          setEditing(false);
-        })}>Save name</Button>
+        <Field label="Your name" value={name} onChangeText={setName} maxLength={40} editable={!action.busy} autoFocus returnKeyType="done" onSubmitEditing={saveName} />
+        <Button secondary disabled={!hasChanges} busy={action.busy} onPress={saveName}>Save name</Button>
       </Card>}
       <View style={s.section}>
         <Text style={s.sectionTitle}>YOUR NETWORK</Text>
         <View style={s.links}>
-          <SettingsLink icon={LockKeyhole} title="Private groups" detail={b.groups.length ? `${b.groups.length} saved ${b.groups.length === 1 ? "group" : "groups"}` : "Join with an invite or create a group"} onPress={() => router.push("/groups")} />
-          <SettingsLink icon={Radio} title="Connections" detail="Bluetooth and relay status" onPress={() => router.push("/network")} />
-          <SettingsLink icon={Map} title="Location & map" detail="Sharing and offline coverage" onPress={() => router.push({ pathname: "/(tabs)/nearby", params: { view: "map" } })} />
+          <SettingsLink icon={LockKeyhole} title="Private groups" detail={b.groups.length ? `${b.groups.length} saved ${b.groups.length === 1 ? "group" : "groups"}` : undefined} onPress={() => router.push("/groups")} />
+          <SettingsLink icon={Radio} title="Connections" onPress={() => router.push("/network")} />
+          <SettingsLink icon={Map} title="Location & map" onPress={() => router.push({ pathname: "/(tabs)/nearby", params: { view: "map" } })} />
           <SettingsLink icon={Clock3} title="Request history" last onPress={() => router.push("/history")} />
         </View>
       </View>
@@ -92,7 +96,7 @@ const s = StyleSheet.create({
   section: { gap: 10 },
   sectionTitle: { fontFamily: fonts.medium, color: c.muted, fontSize: 11, letterSpacing: 1.4 },
   links: { backgroundColor: c.card, borderWidth: 1, borderColor: c.border, borderRadius: 16, overflow: "hidden" },
-  link: { minHeight: 68, paddingVertical: 14, paddingHorizontal: 16 },
+  link: { minHeight: 60, paddingVertical: 14, paddingHorizontal: 16 },
   linkTitle: { fontFamily: fonts.medium, color: c.text, fontSize: 15, lineHeight: 21 },
   linkIcon: { width: 28, alignItems: "center" },
   separator: { borderBottomWidth: 1, borderBottomColor: c.border },

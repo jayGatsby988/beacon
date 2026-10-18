@@ -54,6 +54,7 @@ function renderInbox(people: PersonView[], messages: DirectMessageView[] = []) {
   const routes: unknown[] = [];
   const container = ({ children }: any) => React.createElement("div", null, children);
   const require = (name: string): any => {
+    if (name === "react") return React;
     if (name === "react/jsx-runtime") return jsx;
     if (name === "expo-router") return { router: { push: (route: unknown) => routes.push(route) } };
     if (name === "lucide-react-native") return new Proxy({}, { get: () => () => null });

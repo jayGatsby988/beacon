@@ -2,7 +2,7 @@ import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-na
 import { ChevronRight, HeartHandshake, MapPin, Radio } from "lucide-react-native";
 import { router } from "expo-router";
 import type { RequestView } from "../ui/types";
-import { age, ErrorNotice, styles, useAction } from "./ui";
+import { formatReportTime, ErrorNotice, styles, useAction } from "./ui";
 import { useBeacon } from "../services/BeaconContext";
 import { colors as c, fonts } from "../theme/tokens";
 
@@ -62,7 +62,7 @@ export function RequestCard({ request, showOffer = false }: { request: RequestVi
           </View>}
           <View style={s.details}>
             <Text style={s.title}>{request.mine ? categoryNames[request.category] : `${name} needs help`}</Text>
-            <Text style={styles.caption}>{request.mine ? "You" : categoryNames[request.category]} · {age(request.updatedAt)}</Text>
+            <Text style={styles.caption}>{request.mine ? "You" : categoryNames[request.category]} · {formatReportTime(request.updatedAt)}</Text>
             {!!request.note && <Text style={s.note}>{request.note}</Text>}
             {(!!request.location.place || request.location.latitude != null) && (
               <View style={s.location}>

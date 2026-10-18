@@ -161,10 +161,7 @@ function RequestContent({ id }: { id: string }) {
         <View style={s.section}>
           <Heading size={22}>Help offers{r.status === "active" && r.offers.length > 0 ? ` · ${r.offers.length}` : ""}</Heading>
           {!accepted && r.status === "active" && r.offers.length === 0 && (
-            <View style={s.offerDetails}>
-              <Text style={styles.smallTitle}>No offers yet.</Text>
-              <Text style={styles.caption}>Offers will appear here.</Text>
-            </View>
+            <Text style={styles.caption}>No offers yet.</Text>
           )}
           {r.status === "active" && !r.acceptedOfferId && r.offers.map((offer) => (
             <View key={offer.id} style={s.offer}>
@@ -202,7 +199,6 @@ function RequestContent({ id }: { id: string }) {
 
       {canOffer && (
         <View style={s.section}>
-          <Heading size={22}>Offer help</Heading>
           <Button
             secondary
             icon={false}
