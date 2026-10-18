@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-10-18T07:35:43.746879+00:00",
+  "recordedAt": "2026-10-18T07:42:22.240479+00:00",
   "branch": "codex/beacon",
   "implementationCommit": "94cc544",
   "bundleId": "org.beacon.community.dev",
@@ -44,11 +44,24 @@
   "installation": {
     "iPhone17Pro": "latest corrected/minimal build installed and launched",
     "iPhone17ProMax": "initial voice build installed; correction update blocked by device unavailable",
-    "iPhone18ProMax": "unavailable"
+    "iPhone18ProMax": "latest corrected/minimal build installed; iOS launch denied pending developer trust/verification; device subsequently unavailable"
   },
   "limits": [
     "No successful physical duplex speech test yet",
     "No measured radio range/latency/throughput or SOS-under-call hardware test",
     "Calling requires two updated physical iPhones with Beacon in foreground"
-  ]
+  ],
+  "latestInstallationCheck": {
+    "iPhone18ProMax": {
+      "installation": "passed",
+      "launch": "blocked by iOS Security (CoreDevice 10002)",
+      "developerMode": "enabled",
+      "strictSignatureVerification": "passed",
+      "profileDeviceInclusion": "passed",
+      "profileAndCertificateValidity": "passed",
+      "entitlementCompatibility": "passed",
+      "developerTrust": "phone action requested; not yet confirmed"
+    },
+    "connectionSnapshot": "all three physical iPhones unavailable after installation"
+  }
 }
