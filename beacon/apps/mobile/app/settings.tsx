@@ -43,6 +43,7 @@ export default function Settings() {
         <Card>
           <SettingsLink title="Connection details" onPress={() => router.push("/network")} />
           <SettingsLink title="Request history" onPress={() => router.push("/history")} />
+          <SettingsLink title="Incident connection" detail="Optional upload and shared history." onPress={() => router.push("/incident")} />
           <SettingsLink title="Export diagnostics" detail="No names, notes or precise locations." disabled={action.busy} onPress={() => action.run(b.exportDiagnostics)} />
           <SettingsLink title="Clear old history" disabled={action.busy} onPress={() => Alert.alert("Clear old history?", "Remove eligible expired requests and older activity on this phone. Active requests and pending uploads stay saved.", [
             { text: "Cancel", style: "cancel" },

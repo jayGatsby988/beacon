@@ -146,6 +146,7 @@ export class BeaconService {
       setLocationSharing: this.setLocationSharing,
       findPeople: this.findPeople,
       map: { status: "missing", progress: 0 },
+      cloudConnection: { url: "", incidentId: "" },
       sync: { status: "disabled", pendingCount: 0 },
       completeSetup: this.completeSetup,
       requestPermissions: this.requestPermissions,
@@ -711,7 +712,10 @@ export class BeaconService {
         const events = (await repository.events()).map((r) =>
           this.eventView(r),
         );
-        const url = await this.repo().getSetting("cloudUrl", "");
+        const [url, incidentId] = await Promise.all([
+          this.repo().getSetting("cloudUrl", ""),
+          this.repo().getSetting("incidentId", ""),
+        ]);
         const pendingCount = await this.repo().pendingCount();
         const forwarded = new Set(
           (
@@ -729,6 +733,7 @@ export class BeaconService {
         this.update({
           requests: views,
           events,
+          cloudConnection: { url, incidentId },
           queueCount: records.filter(
             (r) =>
               r.envelope.expiresAt > Date.now() &&
@@ -1215,9 +1220,12 @@ export class BeaconService {
       SecureStore.getItemAsync("beacon.cloudToken"),
     ]);
     const nextUrl = input.cloudUrl ?? oldUrl;
+    const nextIncident = input.incidentId ?? oldIncident;
+    if (nextUrl && (nextUrl !== oldUrl || nextIncident !== oldIncident) && !input.accessToken?.trim())
+      throw new Error("Enter a new access token when changing the incident connection.");
     const changed =
       nextUrl !== oldUrl ||
-      (input.incidentId ?? oldIncident) !== oldIncident ||
+      nextIncident !== oldIncident ||
       (input.accessToken ?? oldToken ?? "") !== (oldToken ?? "");
     // Keep an old in-flight incident response from repopulating a newly configured snapshot.
     if (this.cloudConfigChanging)
@@ -1227,19 +1235,22 @@ export class BeaconService {
         "Let the current sync finish before changing the incident connection.",
       );
     this.cloudConfigChanging = true;
+    let oldTokenRemoved = false;
     try {
+      // Remove the old credential before any endpoint change. A partial metadata
+      // write must never send a previous incident's token to a different server.
+      if (changed) {
+        await SecureStore.deleteItemAsync("beacon.cloudToken");
+        oldTokenRemoved = true;
+      }
       await this.repo().setSetting("displayName", name);
       for (const key of ["cloudUrl", "incidentId", "mapStyleUrl"] as const)
         if (input[key] !== undefined)
           await this.repo().setSetting(key, input[key]);
-      if (input.accessToken !== undefined) {
-        if (input.accessToken)
-          await SecureStore.setItemAsync(
-            "beacon.cloudToken",
-            input.accessToken,
-          );
-        else await SecureStore.deleteItemAsync("beacon.cloudToken");
-      }
+      const nextToken = input.accessToken ?? oldToken;
+      // Only restore a credential once all connection metadata is durable.
+      if (changed && nextToken)
+        await SecureStore.setItemAsync("beacon.cloudToken", nextToken);
       this.update({
         displayName: name,
         ...(changed
@@ -1247,10 +1258,17 @@ export class BeaconService {
           : {}),
       });
     } catch (error) {
-      // A failed settings write may have changed only part of the connection; never retain its old report.
+      // Fail closed after partial writes; retain local records and clear old replay.
+      if (oldTokenRemoved) {
+        await SecureStore.deleteItemAsync("beacon.cloudToken").catch(() => {});
+        await this.repo().setSetting("cloudUrl", "").catch(() => {});
+      }
       if (changed)
         this.update({
-          sync: resetCloudSnapshot(this.state.sync, Boolean(nextUrl)),
+          sync: {
+            ...resetCloudSnapshot(this.state.sync, false),
+            error: "Incident connection could not be saved. Check its settings before syncing.",
+          },
         });
       throw error;
     } finally {

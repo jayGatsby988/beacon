@@ -157,6 +157,8 @@ export interface BeaconState {
   setLocationSharing(enabled: boolean): Promise<void>;
   findPeople(): Promise<void>;
   map: MapState;
+  /** Public connection metadata only; access tokens stay in SecureStore. */
+  cloudConnection: { url: string; incidentId: string };
   sync: {
     status: "idle" | "syncing" | "error" | "disabled";
     pendingCount: number;

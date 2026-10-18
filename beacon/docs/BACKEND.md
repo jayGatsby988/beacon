@@ -35,6 +35,8 @@ npm --workspace @beacon/api run dev
 
 `enroll` prints a new secret token once to stdout only when explicitly invoked. Transfer it privately into the app's secure token storage. Tokens have 256 random bits, are stored as SHA-256 hashes, and can be revoked with `npm --workspace @beacon/api run admin -- revoke-device NODE_ID`. Enrollment does not silently revoke previous tokens. TLS verifies the database certificate; never disable verification to fix a connection failure. Plaintext DB transport is allowed only for localhost development. Use separate migration and runtime database credentials. The runtime needs DML on these tables, SELECT on aggregates, and owner-equivalent permission to refresh this aggregate; use a tightly scoped database role/owned refresh function if your organization separates those duties.
 
+On the phone, open **History → Connect an incident** or **Settings → Advanced → Incident connection**. The connection screen shows the phone's enrollment ID and accepts the HTTPS server URL, incident ID, and newly issued token. Saved tokens are never displayed. Saving a connection does not upload anything: return to History and select **Sync recorded events**. Only public Nearby SOS activity enters this outbox; private-group requests and direct messages are excluded. Disconnecting removes local connection credentials while preserving local records and pending uploads; it does not delete records already on the server.
+
 ## Existing Vultr host deployment recipe
 
 This is preparation only. **The user's no-spending instruction prohibits provisioning Vultr instances, Tiger services, domains, or any paid resource.** Execute only when the user later supplies an already-authorized host and explicitly requests deployment.

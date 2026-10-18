@@ -39,6 +39,7 @@ const compiled = ts.transpileModule(
 const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
 class Adapter implements Database {
   readonly sql: DatabaseSync;
+  failSetting?: string;
   private closed = false;
   constructor(path: string) {
     this.sql = new DatabaseSync(path);
@@ -47,6 +48,8 @@ class Adapter implements Database {
     this.sql.exec(sql);
   }
   async runAsync(sql: string, ...params: SqlValue[]) {
+    if (sql === "INSERT OR REPLACE INTO settings VALUES(?,?)" && params[0] === this.failSetting)
+      throw new Error("Injected settings write failure");
     const result = this.sql.prepare(sql).run(...params);
     return {
       changes: Number(result.changes),
@@ -93,6 +96,11 @@ class World {
   readonly secure = new Map<string, Map<string, string>>();
   readonly writes: Write[] = [];
   readonly queue: Write[] = [];
+  cloudRequests = 0;
+  failTokenWrite = false;
+  failTokenDelete = false;
+  tokenWrites = 0;
+  tokenDeletes = 0;
   async open(name: string) {
     mkdirSync(join(this.directory, name), { recursive: true });
     if (!this.secure.has(name)) this.secure.set(name, new Map());
@@ -117,9 +125,17 @@ class World {
       "expo-secure-store": {
         getItemAsync: async (key: string) => saved.get(key) ?? null,
         setItemAsync: async (key: string, value: string) => {
+          if (key === "beacon.cloudToken") {
+            this.tokenWrites++;
+            if (this.failTokenWrite) throw new Error("Injected token write failure");
+          }
           saved.set(key, value);
         },
         deleteItemAsync: async (key: string) => {
+          if (key === "beacon.cloudToken") {
+            this.tokenDeletes++;
+            if (this.failTokenDelete) throw new Error("Injected token deletion failure");
+          }
           saved.delete(key);
         },
         WHEN_UNLOCKED_THIS_DEVICE_ONLY: 1,
@@ -201,6 +217,7 @@ class World {
         clearTimeout,
         setInterval: () => 1,
         clearInterval: () => {},
+        fetch: () => { this.cloudRequests++; throw new Error("No cloud request is authorized by this fixture"); },
       },
       { filename: "BeaconService.group-integration.cjs" },
     )(
@@ -637,5 +654,90 @@ test("local map location permission denial does not disable nearby or enable sha
     assert.equal(a.service.state.relayRunning, true);
     a.emit("appState", "background");
     await assert.rejects(a.service.state.locateOnMap(), /Open Beacon/);
+  } finally { await world.close(); }
+});
+
+test("incident setup and disconnect keep pending public records and private-group isolation without uploading", { timeout: 10000 }, async () => {
+  const world = new World();
+  try {
+    const phone = await world.open("a");
+    await phone.service.state.sendSOS();
+    const pending = phone.service.state.sync.pendingCount;
+    assert.ok(pending > 0);
+    await phone.service.state.createGroup("Private incident");
+    const groupId = phone.service.state.activeGroupId;
+    const privateRequest = await phone.service.state.sendSOS();
+    assert.equal(phone.service.state.sync.pendingCount, pending, "private SOS never enters the public upload queue");
+    const token = "synthetic-test-token-" + "a".repeat(32);
+    await phone.service.state.saveSettings({ displayName: "a", cloudUrl: "https://beacon.example.org", incidentId: "drill", accessToken: token });
+    assert.deepEqual(JSON.parse(JSON.stringify(phone.service.state.cloudConnection)), { url: "https://beacon.example.org", incidentId: "drill" });
+    assert.equal(world.secure.get("a")!.get("beacon.cloudToken"), token);
+    assert.ok(!JSON.stringify(phone.service.state).includes(token), "saved credentials never enter UI state");
+    assert.equal(phone.service.state.activeGroupId, groupId);
+    assert.equal(phone.service.state.sync.pendingCount, pending);
+    assert.equal(world.cloudRequests, 0, "saving a connection does not upload");
+    phone.service.state.sync.combinedEvents = [{ id: "cloud-record", type: "sos", title: "Previous incident", createdAt: 1, uploaded: true }];
+    await phone.service.state.saveSettings({ displayName: "a", cloudUrl: "", incidentId: "", accessToken: "" });
+    assert.equal(world.secure.get("a")!.has("beacon.cloudToken"), false);
+    assert.equal(phone.service.state.sync.status, "disabled");
+    assert.equal(phone.service.state.sync.combinedEvents, undefined);
+    assert.equal(phone.service.state.sync.pendingCount, pending);
+    assert.equal(phone.service.state.activeGroupId, groupId);
+    assert.ok(phone.service.state.requests.some((request) => request.id === privateRequest));
+    const reopened = await world.restart("a");
+    assert.equal(reopened.service.state.cloudConnection.url, "");
+    assert.equal(reopened.service.state.cloudConnection.incidentId, "");
+    assert.equal(reopened.service.state.sync.status, "disabled");
+    assert.equal(reopened.service.state.sync.pendingCount, pending);
+    assert.equal(world.cloudRequests, 0);
+  } finally { await world.close(); }
+});
+
+test("partial incident replacement cannot pair the previous token with a new server", { timeout: 10000 }, async () => {
+  const world = new World();
+  try {
+    const phone = await world.open("a");
+    const old = { displayName: "a", cloudUrl: "https://old.example.org", incidentId: "old", accessToken: "o".repeat(43) };
+    const next = { displayName: "a", cloudUrl: "https://new.example.org", incidentId: "new", accessToken: "n".repeat(43) };
+    await phone.service.state.saveSettings(old);
+    const writes = world.tokenWrites, deletes = world.tokenDeletes;
+    await phone.service.state.saveSettings({ displayName: "Renamed" });
+    assert.equal(world.tokenWrites, writes, "name-only saves do not rewrite credentials");
+    assert.equal(world.tokenDeletes, deletes);
+    for (const destination of [
+      { cloudUrl: next.cloudUrl, incidentId: next.incidentId },
+      { cloudUrl: old.cloudUrl, incidentId: next.incidentId },
+    ]) {
+      await assert.rejects(phone.service.state.saveSettings({ displayName: "a", ...destination }), /new access token/);
+      assert.equal(phone.service.state.cloudConnection.url, old.cloudUrl);
+      assert.equal(phone.service.state.cloudConnection.incidentId, old.incidentId);
+      assert.equal(world.secure.get("a")!.get("beacon.cloudToken"), old.accessToken);
+      assert.equal(world.tokenWrites, writes);
+      assert.equal(world.tokenDeletes, deletes);
+      assert.equal(world.cloudRequests, 0);
+    }
+    world.failTokenDelete = true;
+    await assert.rejects(phone.service.state.saveSettings(next), /token deletion failure/);
+    assert.equal(phone.service.state.cloudConnection.url, old.cloudUrl);
+    assert.equal(world.secure.get("a")!.get("beacon.cloudToken"), old.accessToken);
+    world.failTokenDelete = false;
+
+    for (const db of phone.databases.values()) db.failSetting = "incidentId";
+    await assert.rejects(phone.service.state.saveSettings(next), /settings write failure/);
+    assert.equal(world.secure.get("a")!.has("beacon.cloudToken"), false);
+    assert.equal(world.tokenWrites, writes, "new token is not stored before metadata succeeds");
+    assert.equal(phone.service.state.cloudConnection.url, "");
+    assert.equal(phone.service.state.sync.status, "disabled");
+    for (const db of phone.databases.values()) db.failSetting = undefined;
+
+    await phone.service.state.saveSettings(old);
+    world.failTokenWrite = true;
+    await assert.rejects(phone.service.state.saveSettings(next), /token write failure/);
+    assert.equal(world.secure.get("a")!.has("beacon.cloudToken"), false);
+    assert.equal(phone.service.state.cloudConnection.url, "");
+    assert.equal(phone.service.state.sync.status, "disabled");
+    assert.match(phone.service.state.sync.error!, /could not be saved/);
+    await assert.rejects(phone.service.state.syncNow());
+    assert.equal(world.cloudRequests, 0, "a failed replacement never sends a request");
   } finally { await world.close(); }
 });

@@ -107,7 +107,7 @@ export default function History() {
           </Text>
         </View>
         {b.sync.status === "disabled" ? (
-          <Button secondary onPress={() => router.push("/settings")}>
+          <Button secondary onPress={() => router.push("/incident")}>
             Connect an incident
           </Button>
         ) : (

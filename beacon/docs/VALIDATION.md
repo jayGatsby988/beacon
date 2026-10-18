@@ -155,6 +155,14 @@ The actual simulator walkthrough verified SOS send/cancel, People/Map switching,
 
 The iOS Release build succeeded and its strict code signature passed. Its embedded JavaScript is newer than every checked UI/service/protocol asset source. All known physical phones were unavailable at build completion, so this redesign has not yet been installed on a physical phone. Artifact details and limitations are in [the redesign evidence](evidence/ui-redesign.json).
 
+## Vultr connection preparation — October 18, 2026
+
+The optional Incident connection screen restores enrollment and configuration from History and Advanced Settings. It never displays a saved token or automatically uploads. Connection replacement requires an explicit token for a new server or incident and removes the old credential before changing metadata, preventing partial writes from pairing an old token with a new host. Disconnect preserves pending records and clears the combined cloud report.
+
+The full local suite passed **165 tests, zero failures, one database integration test skipped**, plus mobile/API TypeScript and ESLint. The database test was skipped because this run supplied no test database; the earlier real Timescale evidence above remains separate. Added tests exercise the actual form actions, private-group exclusion, disconnect persistence, no upload on save, and injected credential/metadata failures. The API-only Node 24 install also passed six API tests with the database test skipped. Docker is unavailable on this Mac, so this is not a verified container build.
+
+No cloud resources were created. Vultr credits/account access, live HTTPS, phone-to-cloud operation, and a native rebuild containing this connection screen remain unverified.
+
 ## Required before broader use
 
 - Run the [device acceptance checklist](DEVICE_ACCEPTANCE.md) on three phones, including Android/iPhone interoperability, disconnections, radio toggles, return acknowledgments, actual app restarts and expiry.
