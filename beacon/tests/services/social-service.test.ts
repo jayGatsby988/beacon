@@ -85,6 +85,8 @@ function fixture() {
   let failSend = false;
   let location: SharedLocation | null = null;
   let locationGate: Promise<void> | undefined;
+  let presenceGate: Promise<void> | undefined;
+  let presenceAttempts = 0;
   const service = new SocialService({
     identity: local,
     repository: repository as unknown as SocialRepository,
@@ -94,6 +96,10 @@ function fixture() {
     random: randomBytes,
     send: async (peerId, wire, currentScope) => {
       if (failSend) throw new Error("Radio unavailable");
+      if (JSON.parse(wire).type === "presence") {
+        presenceAttempts++;
+        await presenceGate;
+      }
       if (JSON.parse(wire).type === "direct") await sendGate;
       if (JSON.parse(wire).type === "location") await locationGate;
       sent.push({ peerId, wire, scope: currentScope });
@@ -130,6 +136,10 @@ function fixture() {
     presence,
     readMarkers,
     readQueries: () => readQueries,
+    presenceAttempts: () => presenceAttempts,
+    presenceGate: (next: Promise<void> | undefined) => {
+      presenceGate = next;
+    },
     setLocation: (next: SharedLocation | null) => {
       location = next;
     },
@@ -176,6 +186,7 @@ test("unacknowledged receipt backlog cannot starve later direct messages on peri
   );
   await h.store(message);
   await h.connect();
+  await turn();
   assert.equal(
     h.sent.filter((s) => JSON.parse(s.wire).type === "direct").length,
     32,
@@ -197,6 +208,78 @@ test("unacknowledged receipt backlog cannot starve later direct messages on peri
     receiptsBefore,
     "receipts are not retried without a reconnect or repeated message",
   );
+});
+
+test("unacknowledged messages do not starve newer messages or receipts on retry", async (t) => {
+  const h = fixture();
+  t.after(() => h.service.settle());
+  for (let i = 0; i < 40; i++)
+    await h.store(createDirectMessage(h.local, h.remote.publicKey, `Queued ${i}`, null, NOW, randomBytes));
+  const later = createDirectReceipt(h.local, h.remote.publicKey, createRequestId(h.remote, randomBytes), null, NOW + 1, randomBytes);
+  await h.store(later);
+  await h.connect();
+  await turn();
+  assert.equal(h.sent.filter((s) => JSON.parse(s.wire).type === "direct").length, 32);
+  await h.service.tick();
+  const ids = new Set(h.sent.map((s) => decodeDirect(s.wire, NOW)?.id));
+  assert.ok(ids.has(later.id), "a receipt behind unacknowledged messages must get a turn");
+  for (const packet of h.repository.messages.values()) assert.ok(ids.has(packet.id));
+  assert.equal(h.repository.delivered.size, 0, "sending never implies delivery");
+});
+
+test("stalled outgoing radio does not block persisting incoming messages or receipts", async (t) => {
+  const h = fixture();
+  const gate = deferred();
+  t.after(async () => {
+    gate.resolve();
+    await h.service.settle();
+  });
+  await h.connect();
+  h.gate(gate.promise);
+  await h.service.sendText(h.remote.nodeId, "Outgoing");
+  const outgoing = [...h.repository.messages.values()][0]!;
+  const incoming = createDirectMessage(h.remote, h.local.publicKey, "Incoming", null, NOW, randomBytes);
+  const receipt = createDirectReceipt(h.remote, h.local.publicKey, outgoing.id, null, NOW, randomBytes);
+  let completed = false;
+  const inbound = h.service.receive("peer", encodeDirect(incoming))
+    .then(() => h.service.receive("peer", encodeDirect(receipt)))
+    .then(() => {
+      completed = true;
+    });
+  await turn();
+  const advancedBeforeRadio = completed;
+  gate.resolve();
+  await inbound;
+  assert.equal(advancedBeforeRadio, true, "receive queue must advance without waiting for native sends");
+  assert.ok(h.repository.delivered.has(outgoing.id));
+  assert.ok(h.changes.at(-1)?.messages.some((m) => m.id === incoming.id));
+  await h.service.flush();
+});
+
+test("stalled presence replies are coalesced and cannot block receiving", async (t) => {
+  const h = fixture();
+  const gate = deferred();
+  t.after(async () => {
+    gate.resolve();
+    await h.service.settle();
+  });
+  await h.connect();
+  h.setNow(NOW + 6_000);
+  h.presenceGate(gate.promise);
+  const before = h.presenceAttempts();
+  let completed = false;
+  const receive = h.service.receive("peer", h.presence())
+    .then(() => h.service.receive("peer", h.presence()))
+    .then(() => {
+      completed = true;
+    });
+  await turn();
+  const advancedBeforeRadio = completed;
+  gate.resolve();
+  await receive;
+  assert.equal(advancedBeforeRadio, true);
+  assert.equal(h.presenceAttempts(), before + 1);
+  assert.equal(h.changes.at(-1)?.people[0]?.connected, true);
 });
 
 test("native send failure remains queued; only an authenticated intended-recipient receipt confirms delivery", async (t) => {
