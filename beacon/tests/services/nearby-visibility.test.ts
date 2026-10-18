@@ -236,3 +236,23 @@ test("explicit map navigation opens Map once and clears its intent without chang
   route.view = "unsupported";
   assert.ok(!render().includes("Map options"), "unrecognized views must not change the default");
 });
+
+
+test("explicit People navigation leaves a selected Map and does not override later manual Map selection", () => {
+  const now = Date.now();
+  const state = {
+    nodeId: "me", activeGroupId: null, groups: [], people: [], requests: [],
+    location: { source: "unavailable" }, locationPermission: "denied", locationSharing: false,
+    relayEnabled: true, relayRunning: true, bluetooth: "poweredOn",
+    map: { status: "ready", progress: 1, bundled: true }, internet: false,
+  };
+  const route: { view?: string } = {};
+  const render = screen(() => state, () => now, route);
+  assert.match(render("map"), /Map options/, "start with Map already selected");
+  route.view = "people";
+  const people = render("map");
+  assert.ok(!people.includes("Map options"), "People link must replace the previously selected Map");
+  assert.match(people, /Find people/, "People link must render the actual discovery action");
+  assert.equal(route.view, undefined, "People intent must be consumed");
+  assert.match(render("map"), /Map options/, "manual Map selection must remain after the People intent is consumed");
+});

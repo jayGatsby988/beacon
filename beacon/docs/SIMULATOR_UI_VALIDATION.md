@@ -1,5 +1,18 @@
 # Simulator UI validation
 
+## Simpler Home and direct actions — October 18, approximately 05:46–05:49
+
+Current production JavaScript/assets were exported into the existing compatible iPhone 17 Pro / iOS 26.0.1 simulator app, ad-hoc signed, installed, and launched. Native transport was unchanged. A separate full Release build for physical iPhones and strict signature verification passed.
+
+- Home has one warm SOS hero, centered audience selection, collapsed optional details, one connection row, and distinct People / Map shortcuts. All main controls fit at the simulator's existing text size.
+- Home → Map selected Map in one tap and displayed bundled UW streets/buildings plus the actual simulated You position. Sharing stayed off. Home → People and Inbox → Find people selected People even after Map had been selected previously.
+- Entered `SIMULATOR QA - no emergency` in the optional note through native accessibility. One tap saved the local SOS and opened details, which showed **Waiting for a connection**, **Saved on this phone**, and a dated **Not live** location. No recipient or volunteer was fabricated.
+- Cancel request retained its confirmation. Confirming reached **Canceled**, explaining that propagation was pending. Home again displayed Send SOS; no active QA request remained.
+- Full workspace checks: 181 passed, one database-dependent skip, zero failures; TypeScript and ESLint passed. After final alignment/copy changes, all 21 focused Help/request, inbox and Nearby tests passed. These include exact-offer acceptance guards, discovery/resume actions, audience filtering and direct view navigation.
+- Both physical phones remained unavailable in devicectl and offline in xctrace despite the user's connection report. This version is built but **not installed** on either phone. Earlier installation evidence belongs to the previous version.
+
+Native captures: [Home](screenshots/simple-layout/home.png), [Map](screenshots/simple-layout/nearby-map.png), [Messages](screenshots/simple-layout/messages.png), [Request](screenshots/simple-layout/request.png). Build fingerprint and checks: [simple-layout.json](evidence/simple-layout.json). This pass does not establish physical BLE/audio, saved-area downloads, or new full accessibility acceptance.
+
 ## Reference-inspired interface — October 18, approximately 03:57–04:02
 
 Current production JavaScript and assets were exported into the existing compatible iPhone 17 Pro / iOS 26.0.1 simulator binary, ad-hoc signed, installed and launched. Device Hub provided native accessibility control. This UI pass did not change native transport code.

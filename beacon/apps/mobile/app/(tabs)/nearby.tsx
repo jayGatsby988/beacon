@@ -27,8 +27,8 @@ export default function Nearby() {
   const [mode, setMode] = useState<"people" | "map">("people");
   const { view } = useLocalSearchParams<{ view?: string | string[] }>();
   useEffect(() => {
-    if (view !== "map") return;
-    setMode("map");
+    if (view !== "map" && view !== "people") return;
+    setMode(view);
     // Consume explicit navigation intent so later tab visits preserve the user's mode.
     router.setParams({ view: undefined });
   }, [view]);
@@ -65,7 +65,7 @@ export default function Nearby() {
   );
   const group = b.groups.find((g) => g.id === b.activeGroupId);
   const scopeName =
-    group?.name || (b.activeGroupId ? "Private group" : "Public Nearby");
+    group?.name || (b.activeGroupId ? "Private group" : "Everyone nearby");
   const people = useMemo(
     () =>
       b.people

@@ -14,7 +14,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
-import { ArrowUp, ChevronDown, ChevronUp, MessageCircle, Phone } from "lucide-react-native";
+import { ArrowUp, Ellipsis, Phone, X } from "lucide-react-native";
 import { useBeacon } from "../../src/services/BeaconContext";
 import {
   ErrorNotice,
@@ -108,23 +108,19 @@ function Conversation({ b, id }: { b: BeaconState; id: string | undefined }) {
               <Text style={s.connection}>
                 {person ? person.connected ? "Connected nearby" : `Last seen ${age(person.lastSeenAt)}` : "Not in your current group"}
               </Text>
-              <Text style={s.callHint}>
-                {person ? person.connected ? "Direct Bluetooth messages" : "Messages queue until you reconnect." : "Return to Messages to find a conversation."}
-              </Text>
             </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={detailsOpen ? "Close conversation options" : "Conversation options"}
+              accessibilityState={{ expanded: detailsOpen }}
+              onPress={() => setDetailsOpen((open) => !open)}
+              style={({ pressed }) => [s.detailsToggle, pressed && { opacity: 0.7 }]}
+            >
+              {detailsOpen ? <X size={21} color={c.secondary} /> : <Ellipsis size={22} color={c.secondary} />}
+            </Pressable>
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Conversation options"
-            accessibilityState={{ expanded: detailsOpen }}
-            onPress={() => setDetailsOpen((open) => !open)}
-            style={({ pressed }) => [s.detailsToggle, pressed && { opacity: 0.7 }]}
-          >
-            <Text style={s.detailsLabel}>Conversation options</Text>
-            {detailsOpen ? <ChevronUp size={16} color={c.muted} /> : <ChevronDown size={16} color={c.muted} />}
-          </Pressable>
           {detailsOpen && <View style={s.details}>
-            <Text style={s.callHint}>Queued messages are saved on this device. Received means the recipient’s device acknowledged the message. Expired messages are no longer sent.</Text>
+            <Text style={s.callHint}>Queued: saved here. Received: acknowledged by their phone. Expired: no longer sending.</Text>
             <View style={s.personRow}>
               <View style={s.personName}>
                 <Text style={s.connection}>Experimental voice call</Text>
@@ -161,9 +157,8 @@ function Conversation({ b, id }: { b: BeaconState; id: string | undefined }) {
           onLayout={() => list.current?.scrollToEnd({ animated: false })}
           ListEmptyComponent={
             <View style={s.empty}>
-              <View style={s.emptyIcon}><MessageCircle size={25} color={c.muted} /></View>
-              <Text style={s.emptyTitle}>{person ? "Start a conversation" : "Conversation unavailable"}</Text>
-              <Text style={s.emptyDetail}>{person ? "Keep in touch with a short message. Text sends directly when you’re connected nearby." : "This person is not in your current group."}</Text>
+              <Text style={s.emptyTitle}>{person ? "Send your first message" : "Conversation unavailable"}</Text>
+              {!person && <Text style={s.emptyDetail}>This person is not in your current audience.</Text>}
             </View>
           }
           renderItem={({ item }) => (
@@ -254,11 +249,9 @@ const s = StyleSheet.create({
   avatar: { width: 44, height: 44, borderRadius: 14, backgroundColor: c.raised, alignItems: "center", justifyContent: "center" },
   initials: { fontFamily: fonts.medium, fontSize: 15, color: c.secondary },
   connection: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 19, color: c.secondary },
-  detailsToggle: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6 },
-  detailsLabel: { fontFamily: fonts.body, fontSize: 12, lineHeight: 18, color: c.muted },
-  details: { gap: 16, backgroundColor: c.card, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: c.border },
+  detailsToggle: { width: 48, height: 48, borderRadius: 16, backgroundColor: c.card, alignItems: "center", justifyContent: "center" },
+  details: { gap: 16, marginTop: 12, backgroundColor: c.card, borderRadius: 16, padding: 16 },
   empty: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 36 },
-  emptyIcon: { width: 56, height: 56, backgroundColor: c.card, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   emptyTitle: { fontFamily: fonts.medium, color: c.text, fontSize: 17, textAlign: "center" },
   emptyDetail: { fontFamily: fonts.body, color: c.muted, fontSize: 14, lineHeight: 21, textAlign: "center", maxWidth: 300 },
   call: {
@@ -305,8 +298,6 @@ const s = StyleSheet.create({
   theirs: {
     alignSelf: "flex-start",
     backgroundColor: c.card,
-    borderColor: c.border,
-    borderWidth: 1,
     borderBottomLeftRadius: 5,
   },
   messageText: {

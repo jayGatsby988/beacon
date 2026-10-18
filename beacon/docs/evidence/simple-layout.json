@@ -1,0 +1,61 @@
+{
+  "recordedAt": "2026-10-18T12:49:59.388107+00:00",
+  "scope": "Simplified Home, request actions and messages; no native radio/audio/protocol changes.",
+  "checks": {
+    "workspaceTests": {
+      "total": 182,
+      "passed": 181,
+      "failed": 0,
+      "skipped": 1,
+      "skipReason": "Database integration requires configured database"
+    },
+    "typecheck": "passed",
+    "eslint": "passed",
+    "finalFocusedUiTests": {
+      "passed": 21,
+      "failed": 0
+    },
+    "diffCheck": "passed"
+  },
+  "deviceBuild": {
+    "configuration": "Release",
+    "sdk": "iphoneos27.1",
+    "embeddedBundleSha256": "c82906708e3716165023dff85e78c339891ba2d97138db66bf9cfab45cd1db33",
+    "embeddedBundleBytes": 11142003,
+    "signingVerification": "codesign --verify --deep --strict passed"
+  },
+  "devices": [
+    {
+      "phone": "pravanram",
+      "installed": false,
+      "status": "Unavailable in devicectl; offline in xctrace. Final build ready; connection required."
+    },
+    {
+      "phone": "vaibhav",
+      "installed": false,
+      "status": "Unavailable in devicectl; offline in xctrace. Final build ready; connection required."
+    }
+  ],
+  "simulator": {
+    "device": "iPhone 17 Pro",
+    "runtime": "iOS 26.0.1",
+    "method": "Fresh production JavaScript and assets in existing compatible native binary, ad-hoc signed",
+    "observed": [
+      "Home render with centered audience and People/Map shortcuts",
+      "Home Map shortcut selects Map directly; bundled geometry and simulated You position render",
+      "Home People shortcut leaves previously selected Map",
+      "Inbox Find people opens People directly",
+      "Single local SOS labeled SIMULATOR QA - no emergency saved and opened request details",
+      "Waiting for a connection and Saved on this phone shown honestly",
+      "Cancel request confirmation reaches Canceled with pending propagation",
+      "Home returns to SOS after cancellation; location sharing left off"
+    ],
+    "screenshots": "docs/screenshots/simple-layout"
+  },
+  "limitations": [
+    "No physical installation of this version completed while both devices are unavailable",
+    "No real BLE/audio acceptance test in this design pass",
+    "No successful saved-area download established",
+    "No new Dynamic Type or full screen-reader test in this pass"
+  ]
+}
