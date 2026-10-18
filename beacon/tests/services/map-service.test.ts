@@ -25,6 +25,14 @@ const campus = JSON.parse(
   ),
 );
 const PACK = "beacon-local-region";
+const endpoint = (request: { url: string }) => {
+  const url = new URL(request.url);
+  return url.origin + url.pathname;
+};
+const requestQuery = (request: { url: string; init: any }) =>
+  new URL(request.url).searchParams.get("data") ??
+  new URLSearchParams(request.init.body).get("data") ??
+  "";
 const styleResponse = () =>
   new Response(JSON.stringify({ version: 8, sources: {}, layers: [] }), {
     status: 200,
@@ -38,6 +46,7 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+type SavedMap = MapState & { styleFile?: string; format?: "geometry" };
 type Progress = {
   state?: number;
   percentage: number;
@@ -68,7 +77,8 @@ function fixture(
     legacyStyleUrl?: string;
     response?: () => Response;
     location?: unknown;
-    stored?: MapState;
+    stored?: SavedMap;
+    documentDirectory?: string;
     files?: Map<string, string>;
     status?: Progress;
     restorePack?: boolean;
@@ -76,12 +86,14 @@ function fixture(
 ) {
   const fetchStarted = deferred<void>(),
     createStarted = deferred<void>();
-  const changed: MapState[] = [],
-    persisted: MapState[] = [],
+  const changed: SavedMap[] = [],
+    persisted: SavedMap[] = [],
     callbacks: Callbacks[] = [];
   const calls: string[] = [],
     packs = new Set<string>(options.restorePack ? [PACK] : []);
   const files = options.files ?? new Map<string, string>();
+  const documentDirectory = options.documentDirectory ?? "file:///test-only/";
+  const fileReads: string[] = [];
   const requests: { url: string; init: any }[] = [];
   const complete = {
     state: 3,
@@ -127,23 +139,24 @@ function fixture(
     if (id === "@maplibre/maplibre-react-native") return native;
     if (id === "expo-file-system/legacy")
       return {
-        documentDirectory: "file:///test-only/",
+        documentDirectory,
         writeAsStringAsync: async (path: string, text: string) => {
           calls.push("write:style");
           files.set(path, text);
         },
-        getInfoAsync: async (path: string) => ({
-          exists: files.has(path),
-          size: files.get(path)?.length ?? 0,
-        }),
+        getInfoAsync: async (path: string) => {
+          fileReads.push(path);
+          return {
+            exists: files.has(path),
+            size: files.get(path)?.length ?? 0,
+          };
+        },
         readAsStringAsync: async (path: string) => {
           if (!files.has(path)) throw new Error("missing");
           return files.get(path);
         },
         readDirectoryAsync: async () =>
-          [...files.keys()].map((path) =>
-            path.replace("file:///test-only/", ""),
-          ),
+          [...files.keys()].map((path) => path.replace(documentDirectory, "")),
         deleteAsync: async (path: string) => {
           files.delete(path);
         },
@@ -242,6 +255,8 @@ function fixture(
     calls,
     packs,
     files,
+    documentDirectory,
+    fileReads,
     requests,
     complete,
     signal: () => signal,
@@ -430,11 +445,21 @@ test("default Save area makes one bounded request and persists a self-contained 
   assert.equal(refreshed, true);
   assert.equal(h.requests.length, 1);
   const request = h.requests[0];
-  assert.equal(request.url, "https://overpass.private.coffee/api/interpreter");
-  assert.equal(request.init.method, "POST");
-  const query = decodeURIComponent(request.init.body.slice(5));
+  assert.equal(
+    endpoint(request),
+    "https://overpass.private.coffee/api/interpreter",
+  );
+  assert.equal(request.init.method, "GET");
+  assert.equal(request.init.body, undefined);
+  assert.match(request.url, /\?data=%5Bout%3Ajson%5D/);
+  assert.match(
+    request.url,
+    /%28park%7Cgarden%7Cpitch%29/,
+    "query syntax is fully percent-encoded",
+  );
+  const query = requestQuery(request);
   assert.match(query, /timeout:25/);
-  assert.match(query, /maxsize:8388608/);
+  assert.match(query, /maxsize:67108864/);
   assert.equal(
     h.callbacks.length,
     0,
@@ -445,7 +470,13 @@ test("default Save area makes one bounded request and persists a self-contained 
   assert.equal(saved.bundled, false);
   assert.ok(saved.bounds![0] < -122.306 && saved.bounds![2] > -122.306);
   assert.ok(saved.bounds![2] - saved.bounds![0] < 0.03);
-  const style = JSON.parse(h.files.get(saved.styleUrl!)!);
+  assert.equal(
+    saved.styleUrl,
+    undefined,
+    "absolute container paths are never persisted",
+  );
+  assert.match(saved.styleFile!, /^beacon-area-\d+-\d+\.json$/);
+  const style = JSON.parse(h.files.get(h.changed.at(-1)!.styleUrl!)!);
   assert.equal(style.sources.campus.data.features.length, 2);
   assert.equal(
     style.sources.campus.attribution,
@@ -561,7 +592,7 @@ test("restart checks real pack completion and missing files rather than trusting
   const stored: MapState = {
     status: "ready",
     progress: 1,
-    styleUrl: "file:///test-only/style.json",
+    styleUrl: "file:///test-only/beacon-map-style.json",
     bounds: [-123, 47, -122, 48],
   };
   const files = new Map([[stored.styleUrl!, "{}"]]);
@@ -594,7 +625,7 @@ test("failed refresh retains the previous saved file and it remains restorable o
   const saved = fixture({ geometry: true, response: geometryResponse });
   t.after(saved.cleanup);
   await saved.service.download();
-  const previous = saved.persisted.at(-1)!;
+  const previous = saved.changed.at(-1)!;
   const replacement = fixture({
     geometry: true,
     stored: previous,
@@ -603,7 +634,10 @@ test("failed refresh retains the previous saved file and it remains restorable o
   });
   t.after(replacement.cleanup);
   await replacement.service.initialize();
-  await assert.rejects(replacement.service.download(), /provider unavailable/);
+  await assert.rejects(
+    replacement.service.download(),
+    /provider unavailable \(HTTP 503\)/,
+  );
   assert.equal(
     replacement.changed.some(
       (state) =>
@@ -630,7 +664,7 @@ test("Cancel save aborts replacement but keeps previous area; explicit remove st
   const saved = fixture({ geometry: true, response: geometryResponse });
   t.after(saved.cleanup);
   await saved.service.download();
-  const previous = saved.persisted.at(-1)!;
+  const previous = saved.changed.at(-1)!;
   const gate = deferred<Response>();
   const replacement = fixture({
     geometry: true,
@@ -686,7 +720,7 @@ test("Save my area ignores an inaccessible legacy custom-map setting", async (t)
   await h.service.download();
   assert.equal(h.requests.length, 1);
   assert.equal(
-    h.requests[0].url,
+    endpoint(h.requests[0]),
     "https://overpass.private.coffee/api/interpreter",
   );
   assert.match(
@@ -695,4 +729,328 @@ test("Save my area ignores an inaccessible legacy custom-map setting", async (t)
   );
   assert.equal(h.callbacks.length, 0);
   assert.equal(h.changed.at(-1)?.status, "ready");
+});
+
+test("portable saved metadata and legacy absolute paths restore from a relocated iOS Documents directory without HTTP", async (t) => {
+  const original = fixture({
+    geometry: true,
+    response: geometryResponse,
+    documentDirectory: "file:///old-container/Documents/",
+  });
+  t.after(original.cleanup);
+  await original.service.download();
+  const portable = original.persisted.at(-1)!;
+  const legacy = { ...original.changed.at(-1)!, styleFile: undefined };
+  assert.equal(portable.styleUrl, undefined);
+  const newDirectory = "file:///new-container/Documents/";
+  const moved = new Map([
+    [
+      newDirectory + portable.styleFile!,
+      original.files.get(original.changed.at(-1)!.styleUrl!)!,
+    ],
+  ]);
+  for (const stored of [portable, legacy]) {
+    const restart = fixture({
+      stored,
+      files: moved,
+      documentDirectory: newDirectory,
+    });
+    t.after(restart.cleanup);
+    await restart.service.initialize();
+    assert.equal(restart.changed.at(-1)?.status, "ready");
+    assert.equal(
+      restart.changed.at(-1)?.styleUrl,
+      newDirectory + portable.styleFile,
+    );
+    assert.equal(restart.persisted.at(-1)?.styleFile, portable.styleFile);
+    assert.equal(restart.persisted.at(-1)?.styleUrl, undefined);
+    assert.ok(
+      restart.fileReads.every((path) => path.startsWith(newDirectory)),
+      "never tries the stale container path",
+    );
+    assert.equal(restart.requests.length, 0);
+  }
+});
+
+test("missing file retains its portable reference so a later restart can recover it", async (t) => {
+  const original = fixture({ geometry: true, response: geometryResponse });
+  t.after(original.cleanup);
+  await original.service.download();
+  const stored = original.persisted.at(-1)!;
+  const missing = fixture({ stored });
+  t.after(missing.cleanup);
+  await missing.service.initialize();
+  assert.equal(missing.changed.at(-1)?.status, "error");
+  assert.equal(missing.persisted.at(-1)?.styleFile, stored.styleFile);
+  assert.deepEqual(missing.persisted.at(-1)?.bounds, stored.bounds);
+  assert.equal(missing.persisted.at(-1)?.format, "geometry");
+  const recovered = fixture({
+    stored: missing.persisted.at(-1),
+    files: original.files,
+  });
+  t.after(recovered.cleanup);
+  await recovered.service.initialize();
+  assert.equal(recovered.changed.at(-1)?.status, "ready");
+  assert.equal(recovered.requests.length, 0);
+});
+
+test("old initialization error that erased all metadata recovers a validated owned geometry file", async (t) => {
+  const original = fixture({ geometry: true, response: geometryResponse });
+  t.after(original.cleanup);
+  await original.service.download();
+  const damaged = fixture({
+    stored: {
+      status: "error",
+      progress: 0,
+      error: "Saved map files are missing.",
+    },
+    files: original.files,
+  });
+  t.after(damaged.cleanup);
+  await damaged.service.initialize();
+  assert.equal(damaged.changed.at(-1)?.status, "ready");
+  assert.equal(
+    damaged.changed.at(-1)?.styleUrl,
+    original.changed.at(-1)?.styleUrl,
+  );
+  assert.deepEqual(
+    damaged.changed.at(-1)?.bounds,
+    original.changed.at(-1)?.bounds,
+  );
+  assert.equal(
+    damaged.persisted.at(-1)?.styleFile,
+    original.persisted.at(-1)?.styleFile,
+  );
+  assert.equal(damaged.requests.length, 0);
+});
+
+test("restoration rejects traversal and unrelated filenames without reading arbitrary paths", async (t) => {
+  for (const path of [
+    "../beacon-area-1-1.json",
+    "file:///old-container/Documents/secret.json",
+    "https://example.test/beacon-area-1-1.json",
+  ]) {
+    const h = fixture({
+      stored: {
+        status: "ready",
+        progress: 1,
+        format: "geometry",
+        styleFile: path,
+        styleUrl: path,
+        bounds: [-123, 47, -122, 48],
+      },
+    });
+    t.after(h.cleanup);
+    await h.service.initialize();
+    assert.equal(h.changed.at(-1)?.status, "error");
+    assert.equal(h.fileReads.length, 0);
+    assert.equal(h.persisted.at(-1)?.styleUrl, undefined);
+    assert.equal(h.persisted.at(-1)?.styleFile, undefined);
+  }
+});
+
+test("orphan recovery is bounded and refuses styles with remote resources or invalid coordinates", async (t) => {
+  const original = fixture({ geometry: true, response: geometryResponse });
+  t.after(original.cleanup);
+  await original.service.download();
+  const valid = original.files.get(original.changed.at(-1)!.styleUrl!)!;
+  const directory = "file:///test-only/";
+  const files = new Map<string, string>();
+  for (let i = 6; i > 1; i--) {
+    const bad = JSON.parse(valid);
+    if (i % 2)
+      bad.glyphs = "https://example.test/fonts/{fontstack}/{range}.pbf";
+    else bad.sources.campus.data.features[0].geometry.coordinates[0][0] = 999;
+    files.set(`${directory}beacon-area-${i}-1.json`, JSON.stringify(bad));
+  }
+  files.set(`${directory}beacon-area-1-1.json`, valid);
+  const h = fixture({ stored: { status: "error", progress: 0 }, files });
+  t.after(h.cleanup);
+  await h.service.initialize();
+  assert.equal(h.changed.at(-1)?.status, "error");
+  assert.equal(
+    h.fileReads.length,
+    5,
+    "at most five app-owned files are inspected",
+  );
+  assert.equal(h.fileReads.includes(`${directory}beacon-area-1-1.json`), false);
+  assert.equal(h.requests.length, 0);
+});
+
+test("cancelled replacement leaves portable saved metadata restorable after a subsequent container move", async (t) => {
+  const original = fixture({ geometry: true, response: geometryResponse });
+  t.after(original.cleanup);
+  await original.service.download();
+  const gate = deferred<Response>();
+  const active = fixture({
+    geometry: true,
+    stored: original.persisted.at(-1),
+    files: original.files,
+    fetchGate: gate,
+  });
+  t.after(active.cleanup);
+  await active.service.initialize();
+  const downloading = active.service.download();
+  await active.fetchStarted.promise;
+  const canceling = active.service.cancel();
+  gate.resolve(geometryResponse());
+  await Promise.all([downloading, canceling]);
+  const stored = active.persisted.at(-1)!;
+  assert.equal(stored.styleUrl, undefined);
+  assert.equal(stored.styleFile, original.persisted.at(-1)?.styleFile);
+  const nextDirectory = "file:///another-container/Documents/";
+  const moved = new Map([
+    [
+      nextDirectory + stored.styleFile!,
+      original.files.get(original.changed.at(-1)!.styleUrl!)!,
+    ],
+  ]);
+  const restart = fixture({
+    stored,
+    files: moved,
+    documentDirectory: nextDirectory,
+  });
+  t.after(restart.cleanup);
+  await restart.service.initialize();
+  assert.equal(restart.changed.at(-1)?.status, "ready");
+  assert.equal(
+    restart.changed.at(-1)?.styleUrl,
+    nextDirectory + stored.styleFile,
+  );
+});
+
+test("temporary provider failure uses one documented fallback and keeps client size cap independent of query RAM", async (t) => {
+  let requests = 0;
+  const h = fixture({
+    geometry: true,
+    response: () =>
+      ++requests === 1
+        ? new Response("busy", { status: 500 })
+        : geometryResponse(),
+  });
+  t.after(h.cleanup);
+  await h.service.download();
+  assert.deepEqual(h.requests.map(endpoint), [
+    "https://overpass.private.coffee/api/interpreter",
+    "https://overpass-api.de/api/interpreter",
+  ]);
+  assert.equal(h.changed.at(-1)?.status, "ready");
+  assert.equal(h.requests[0].init.method, "GET");
+  assert.equal(h.requests[1].init.method, "POST");
+  assert.equal(requestQuery(h.requests[0]), requestQuery(h.requests[1]));
+  assert.ok(
+    h.requests.every((request) =>
+      requestQuery(request).includes("[maxsize:67108864]"),
+    ),
+  );
+  const oversized = fixture({
+    geometry: true,
+    response: () =>
+      new Response("{}", { headers: { "content-length": "8000001" } }),
+  });
+  t.after(oversized.cleanup);
+  await assert.rejects(oversized.service.download(), /too much map detail/);
+  assert.equal(
+    oversized.requests.length,
+    1,
+    "oversized data is not retried against another provider",
+  );
+});
+
+test("both providers failing never attempts a third request and retains the final HTTP status", async (t) => {
+  let requests = 0;
+  const h = fixture({
+    geometry: true,
+    response: () =>
+      new Response("busy", { status: ++requests === 1 ? 500 : 502 }),
+  });
+  t.after(h.cleanup);
+  await assert.rejects(h.service.download(), /HTTP 502/);
+  assert.equal(h.requests.length, 2);
+  assert.equal(h.changed.at(-1)?.status, "error");
+  assert.match(h.changed.at(-1)?.error ?? "", /HTTP 502/);
+  assert.equal(h.files.size, 0);
+});
+
+test("cancelled provider failure cannot start a fallback request or replace the saved map", async (t) => {
+  const original = fixture({ geometry: true, response: geometryResponse });
+  t.after(original.cleanup);
+  await original.service.download();
+  const gate = deferred<Response>();
+  const active = fixture({
+    geometry: true,
+    stored: original.persisted.at(-1),
+    files: original.files,
+    fetchGate: gate,
+  });
+  t.after(active.cleanup);
+  await active.service.initialize();
+  const saving = active.service.download();
+  await active.fetchStarted.promise;
+  const canceling = active.service.cancel();
+  gate.resolve(new Response("busy", { status: 500 }));
+  await Promise.all([saving, canceling]);
+  assert.equal(active.requests.length, 1);
+  assert.equal(active.changed.at(-1)?.status, "ready");
+  assert.equal(
+    active.persisted.at(-1)?.styleFile,
+    original.persisted.at(-1)?.styleFile,
+  );
+});
+
+test("permanent HTTP rejection and partial provider results do not trigger fallback", async (t) => {
+  for (const response of [
+    () => new Response("invalid", { status: 400 }),
+    () =>
+      new Response(
+        JSON.stringify({
+          elements: [],
+          remark: "runtime error: out of memory",
+        }),
+      ),
+  ]) {
+    const h = fixture({ geometry: true, response });
+    t.after(h.cleanup);
+    await assert.rejects(h.service.download());
+    assert.equal(h.requests.length, 1);
+    assert.equal(h.files.size, 0);
+  }
+});
+
+test("failure context retains both HTTP statuses and only allowlisted network error names", async (t) => {
+  let httpAttempt = 0;
+  const h = fixture({
+    geometry: true,
+    response: () =>
+      new Response("private upstream content", {
+        status: ++httpAttempt === 1 ? 500 : 502,
+      }),
+  });
+  t.after(h.cleanup);
+  await assert.rejects(
+    h.service.download(),
+    /Attempts 1: HTTP 500; 2: HTTP 502/,
+  );
+  assert.doesNotMatch(
+    h.changed.at(-1)?.error ?? "",
+    /private upstream content/,
+  );
+  let mixedAttempt = 0;
+  const mixed = fixture({
+    geometry: true,
+    response: () => {
+      if (++mixedAttempt === 1)
+        throw new TypeError("sensitive URL and coordinates must not appear");
+      return new Response("unavailable", { status: 503 });
+    },
+  });
+  t.after(mixed.cleanup);
+  await assert.rejects(
+    mixed.service.download(),
+    /Attempts 1: network TypeError; 2: HTTP 503/,
+  );
+  assert.doesNotMatch(
+    mixed.changed.at(-1)?.error ?? "",
+    /sensitive|coordinates/,
+  );
 });

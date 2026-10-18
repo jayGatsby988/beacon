@@ -18,9 +18,92 @@ export const CAMPUS_MAP: MapState = {
   bounds: CAMPUS_BOUNDS,
 };
 const PACK = "beacon-local-region";
-const OVERPASS = "https://overpass.private.coffee/api/interpreter";
+const OVERPASS_ENDPOINTS = [
+  "https://overpass.private.coffee/api/interpreter",
+  "https://overpass-api.de/api/interpreter",
+] as const;
+// Overpass working RAM is independent of the response/file limit below.
+const QUERY_MEMORY_BYTES = 64 * 1024 * 1024;
+class MapFetchError extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+    readonly diagnostic = "response rejected",
+  ) {
+    super(message);
+  }
+}
 const MAX_BYTES = 8_000_000;
-type SavedMap = MapState & { format?: "geometry" };
+type SavedMap = MapState & { format?: "geometry"; styleFile?: string };
+const GEOMETRY_FILE = /^beacon-area-\d+-\d+\.json$/;
+function ownedFilename(value: unknown): string | undefined {
+  if (typeof value !== "string") return;
+  // Legacy file URLs are migrated by basename, never by trusting a persisted container path.
+  let filename = value;
+  if (value.startsWith("file://")) {
+    try {
+      filename = new URL(value).pathname.split("/").pop() ?? "";
+    } catch {
+      return;
+    }
+  }
+  if (GEOMETRY_FILE.test(filename) || filename === "beacon-map-style.json")
+    return filename;
+}
+function validBounds(
+  value: unknown,
+): value is [number, number, number, number] {
+  return (
+    Array.isArray(value) &&
+    value.length === 4 &&
+    value.every(Number.isFinite) &&
+    value[0] >= -180 &&
+    value[2] <= 180 &&
+    value[1] >= -85 &&
+    value[3] <= 85 &&
+    value[0] < value[2] &&
+    value[1] < value[3]
+  );
+}
+function validGeometryFeatures(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 20_000)
+    return false;
+  let points = 0;
+  const line = (coordinates: unknown, closed: boolean): boolean => {
+    if (!Array.isArray(coordinates) || coordinates.length < (closed ? 4 : 2))
+      return false;
+    points += coordinates.length;
+    if (
+      points > 100_000 ||
+      !coordinates.every(
+        (p) =>
+          Array.isArray(p) &&
+          p.length === 2 &&
+          p.every(Number.isFinite) &&
+          Math.abs(p[0]) <= 180 &&
+          Math.abs(p[1]) <= 90,
+      )
+    )
+      return false;
+    return (
+      !closed ||
+      (coordinates[0][0] === coordinates[coordinates.length - 1][0] &&
+        coordinates[0][1] === coordinates[coordinates.length - 1][1])
+    );
+  };
+  return value.every((feature) => {
+    if (feature?.type !== "Feature") return false;
+    const geometry = feature.geometry;
+    if (geometry?.type === "LineString")
+      return line(geometry.coordinates, false);
+    return (
+      geometry?.type === "Polygon" &&
+      Array.isArray(geometry.coordinates) &&
+      geometry.coordinates.length > 0 &&
+      geometry.coordinates.every((ring: unknown) => line(ring, true))
+    );
+  });
+}
 type PackStatus = {
   state: number;
   percentage: number;
@@ -166,15 +249,19 @@ export class MapService {
   ) {}
   private async set(state: SavedMap) {
     if (this.disposed) return;
-    this.state = state;
-    this.changed(state);
+    const styleFile =
+      ownedFilename(state.styleFile) ?? ownedFilename(state.styleUrl);
+    this.state = { ...state, styleFile };
+    this.changed(this.state);
+    // Persist a portable filename: iOS can relocate Documents during an app update.
+    const persisted = { ...this.state, styleUrl: undefined };
     // Preserve callback order even if storage writes settle out of order.
     const generation = this.generation;
     this.writes = this.writes
       .catch(() => {})
       .then(async () => {
         if (!this.disposed && generation === this.generation)
-          await this.repo.setSetting("offlineMap", state);
+          await this.repo.setSetting("offlineMap", persisted);
       });
     await this.writes;
   }
@@ -196,48 +283,44 @@ export class MapService {
       this.changed(stored);
       return;
     }
-    const info = stored.styleUrl
-      ? await FileSystem.getInfoAsync(stored.styleUrl)
+    const styleFile =
+      ownedFilename(stored.styleFile) ?? ownedFilename(stored.styleUrl);
+    const local =
+      styleFile && FileSystem.documentDirectory
+        ? FileSystem.documentDirectory + styleFile
+        : undefined;
+    const restored = { ...stored, styleFile, styleUrl: local };
+    const info = local
+      ? await FileSystem.getInfoAsync(local).catch(() => undefined)
       : undefined;
     if (!current()) return;
-    if (!info?.exists || !stored.bounds) {
-      await this.set({
-        status: "error",
-        progress: 0,
-        error: "Saved map files are missing. Save your area again when online.",
-      });
-      return;
-    }
-    if (stored.format === "geometry") {
-      try {
-        if (info.size > MAX_BYTES) throw new Error("Invalid map size");
-        const style = JSON.parse(
-          await FileSystem.readAsStringAsync(stored.styleUrl!),
-        );
-        if (
-          style.metadata?.beaconFormat !== "geometry" ||
-          style.version !== 8 ||
-          !Array.isArray(style.sources?.campus?.data?.features) ||
-          style.sources.campus.data.features.length === 0
-        )
-          throw new Error("Invalid saved map");
-        if (current())
-          await this.set({
-            ...stored,
-            status: "ready",
-            progress: 1,
-            savedAvailable: undefined,
-            error: undefined,
-          });
-      } catch {
-        if (current())
-          await this.set({
-            status: "error",
-            progress: 0,
-            error:
-              "Saved map could not be read. Save your area again when online.",
-          });
+    if (styleFile && GEOMETRY_FILE.test(styleFile)) {
+      const geometry = await this.readGeometry(styleFile);
+      if (!current()) return;
+      if (geometry) {
+        await this.set(geometry);
+        return;
       }
+    }
+    if (
+      !info?.exists ||
+      !validBounds(stored.bounds) ||
+      stored.format === "geometry"
+    ) {
+      // Older versions erased the filename on a missing-path error. Recover only a bounded
+      // number of app-owned, validated, self-contained geometry files; never fetch a map here.
+      const recovered = await this.recoverGeometry(current, styleFile);
+      if (!current()) return;
+      await this.set(
+        recovered ?? {
+          ...restored,
+          status: "error",
+          progress: 0,
+          savedAvailable: undefined,
+          error:
+            "Saved map files are missing or unreadable. Save your area again when online.",
+        },
+      );
       return;
     }
     const pack = (await MapLibre.offlineManager.getPacks()).find(
@@ -253,7 +336,7 @@ export class MapService {
     if (!complete(status)) await pack.pause();
     if (!current()) return;
     await this.set({
-      ...stored,
+      ...restored,
       status: complete(status) ? "ready" : "error",
       progress: progress(status),
       bytes: status.completedResourceSize,
@@ -261,6 +344,83 @@ export class MapService {
         ? undefined
         : "Download was interrupted. Save the map again when online.",
     });
+  }
+  private async readGeometry(styleFile: string): Promise<SavedMap | undefined> {
+    if (!FileSystem.documentDirectory || !GEOMETRY_FILE.test(styleFile)) return;
+    const local = FileSystem.documentDirectory + styleFile;
+    try {
+      const info = await FileSystem.getInfoAsync(local);
+      if (
+        !info.exists ||
+        info.isDirectory ||
+        info.size <= 0 ||
+        info.size > MAX_BYTES
+      )
+        return;
+      const text = await FileSystem.readAsStringAsync(local);
+      if (text.length > MAX_BYTES) return;
+      const style = JSON.parse(text);
+      const source = style.sources?.campus;
+      // Recovered files must be self-contained. Do not resurrect external tile/font downloads.
+      if (
+        style.version !== 8 ||
+        style.metadata?.beaconFormat !== "geometry" ||
+        !validBounds(style.metadata.bounds) ||
+        !Number.isFinite(style.metadata.savedAt) ||
+        style.glyphs ||
+        style.sprite ||
+        !style.sources ||
+        Object.keys(style.sources).length !== 1 ||
+        source?.type !== "geojson" ||
+        source.data?.type !== "FeatureCollection" ||
+        !validGeometryFeatures(source.data.features) ||
+        source.url ||
+        source.tiles ||
+        !Array.isArray(style.layers) ||
+        style.layers.length === 0 ||
+        style.layers.length > 20 ||
+        !style.layers.every(
+          (layer: { type?: string; source?: string }) =>
+            layer.type === "background" ||
+            ((layer.type === "fill" || layer.type === "line") &&
+              layer.source === "campus"),
+        )
+      )
+        return;
+      return {
+        status: "ready",
+        progress: 1,
+        format: "geometry",
+        styleFile,
+        styleUrl: local,
+        name: "Saved roads & buildings",
+        bounds: style.metadata.bounds,
+        bundled: false,
+        bytes: info.size,
+        updatedAt: style.metadata.savedAt,
+      };
+    } catch {
+      return;
+    }
+  }
+  private async recoverGeometry(
+    current: () => boolean,
+    alreadyChecked?: string,
+  ): Promise<SavedMap | undefined> {
+    if (!FileSystem.documentDirectory) return;
+    const files = await FileSystem.readDirectoryAsync(
+      FileSystem.documentDirectory,
+    ).catch(() => [] as string[]);
+    if (!current()) return;
+    const candidates = files
+      .filter((file) => GEOMETRY_FILE.test(file) && file !== alreadyChecked)
+      .sort((a, b) => Number(b.split("-")[2]) - Number(a.split("-")[2]))
+      .slice(0, 5);
+    for (const file of candidates) {
+      if (!current()) return;
+      const recovered = await this.readGeometry(file);
+      if (recovered && current()) return recovered;
+    }
   }
   download(
     refreshLocation?: () => Promise<void>,
@@ -449,38 +609,9 @@ export class MapService {
     const box = [bounds[1], bounds[0], bounds[3], bounds[2]]
       .map((n) => n.toFixed(6))
       .join(",");
-    const query = `[out:json][timeout:25][maxsize:8388608];(way[highway](${box});way[building](${box});way[leisure~"^(park|garden|pitch)$"](${box});way[natural=water](${box}););out geom;`;
-    const controller = new AbortController();
-    this.controller = controller;
-    const timer = setTimeout(() => controller.abort(), 30_000);
-    let text: string;
-    try {
-      const response = await fetch(OVERPASS, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent":
-            "Beacon/0.1 (+https://github.com/jayGatsby988/beacon; explicit offline area save)",
-        },
-        body: `data=${encodeURIComponent(query)}`,
-        signal: controller.signal,
-        redirect: "error",
-      });
-      if (!current()) return;
-      if (!response.ok)
-        throw new Error(
-          "Map provider unavailable. Try saving your area later while online.",
-        );
-      if (Number(response.headers.get("content-length")) > MAX_BYTES)
-        throw new Error("This area has too much map detail to save.");
-      text = await response.text();
-    } finally {
-      clearTimeout(timer);
-      if (this.controller === controller) this.controller = undefined;
-    }
-    if (!current()) return;
-    if (text.length > MAX_BYTES)
-      throw new Error("This area has too much map detail to save.");
+    const query = `[out:json][timeout:25][maxsize:${QUERY_MEMORY_BYTES}];(way[highway](${box});way[building](${box});way[leisure~"^(park|garden|pitch)$"](${box});way[natural=water](${box}););out geom;`;
+    const text = await this.requestGeometry(query, current);
+    if (!current() || text === undefined) return;
     const style = JSON.stringify(
       createOfflineAreaStyle(JSON.parse(text), bounds),
     );
@@ -506,6 +637,97 @@ export class MapService {
     });
     // Only discard previous files after the new self-contained style and metadata are durable.
     if (current()) await this.clearGeometryFiles(local).catch(() => {});
+  }
+  private async requestGeometry(
+    query: string,
+    current: () => boolean,
+  ): Promise<string | undefined> {
+    // At most one attempt per documented provider, and only while this explicit save is current.
+    // Bad/oversized/partial map data never triggers an automatic retry or becomes ready.
+    const failures: string[] = [];
+    for (let attempt = 0; attempt < OVERPASS_ENDPOINTS.length; attempt++) {
+      if (!current()) return;
+      const controller = new AbortController();
+      this.controller = controller;
+      const timer = setTimeout(() => controller.abort(), 30_000);
+      try {
+        // Private.coffee's POST CGI currently fails while its documented GET API works.
+        // Use standard form encoding for either transport, without logging the area URL.
+        const data = `data=${encodeURIComponent(query)
+          .replace(
+            /[!'()*]/g,
+            (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+          )
+          .replace(/%20/g, "+")}`;
+        const useGet = attempt === 0;
+        const response = await fetch(
+          useGet
+            ? `${OVERPASS_ENDPOINTS[attempt]}?${data}`
+            : OVERPASS_ENDPOINTS[attempt],
+          {
+            method: useGet ? "GET" : "POST",
+            headers: {
+              ...(useGet
+                ? {}
+                : { "Content-Type": "application/x-www-form-urlencoded" }),
+              "User-Agent":
+                "Beacon/0.1 (+https://github.com/jayGatsby988/beacon; explicit offline area save)",
+            },
+            ...(useGet ? {} : { body: data }),
+            signal: controller.signal,
+            redirect: "error",
+          },
+        );
+        if (!current()) return;
+        if (!response.ok)
+          throw new MapFetchError(
+            `Map provider unavailable (HTTP ${response.status}). Try saving your area later while online.`,
+            response.status === 429 || response.status >= 500,
+            `HTTP ${response.status}`,
+          );
+        if (Number(response.headers.get("content-length")) > MAX_BYTES)
+          throw new MapFetchError(
+            "This area has too much map detail to save.",
+            false,
+          );
+        const text = await response.text();
+        if (!current()) return;
+        if (text.length > MAX_BYTES)
+          throw new MapFetchError(
+            "This area has too much map detail to save.",
+            false,
+          );
+        return text;
+      } catch (error) {
+        if (!current()) return;
+        const name =
+          error && typeof error === "object" && "name" in error
+            ? error.name
+            : undefined;
+        const networkKind =
+          name === "TypeError" ||
+          name === "AbortError" ||
+          name === "TimeoutError"
+            ? name
+            : "Error";
+        const failure =
+          error instanceof MapFetchError
+            ? error
+            : new MapFetchError(
+                "Could not reach the map provider. Try again while online.",
+                true,
+                `network ${networkKind}`,
+              );
+        failures.push(`${attempt + 1}: ${failure.diagnostic}`);
+        if (!failure.retryable || attempt === OVERPASS_ENDPOINTS.length - 1)
+          throw new Error(
+            `${failure.message} Attempts ${failures.join("; ")}.`,
+          );
+      } finally {
+        clearTimeout(timer);
+        if (this.controller === controller) this.controller = undefined;
+      }
+    }
   }
   private async clearGeometryFiles(keep?: string) {
     if (!FileSystem.documentDirectory) return;
