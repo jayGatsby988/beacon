@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import {
   MessageCircle,
-  MapPin,
+  Map,
   Radar,
   Users,
 } from "lucide-react-native";
@@ -18,7 +18,7 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useBeacon } from "../../src/services/BeaconContext";
 import { ErrorNotice, Screen, age, useAction } from "../../src/components/ui";
 import AudiencePicker from "../../src/components/AudiencePicker";
-import NearbyMap, { freshLocation, locationLabel } from "../../src/components/NearbyMap";
+import NearbyMap, { freshLocation, locationRefreshDelay } from "../../src/components/NearbyMap";
 import { colors as c, fonts } from "../../src/theme/tokens";
 
 export default function Nearby() {
@@ -36,30 +36,32 @@ export default function Nearby() {
   const [mapFocusRevision, setMapFocusRevision] = useState(0);
   const findAction = useAction();
   const shareAction = useAction();
-  useFocusEffect(
-    useCallback(() => {
-      setNow(Date.now());
-      const clock = setInterval(
-        () => setNow(Date.now()),
-        mode === "map" ? 1000 : 30_000,
-      );
-      return () => clearInterval(clock);
-    }, [mode]),
-  );
   const { locationPermission, refreshLocation } = b;
   useFocusEffect(
     useCallback(() => {
       if (mode !== "map") return;
       let focused = true;
+      let refreshing = false;
+      const refresh = async (recenter: boolean) => {
+        if (refreshing) return;
+        refreshing = true;
+        try {
+          await refreshLocation();
+          if (focused && recenter) setMapFocusRevision((revision) => revision + 1);
+        } catch {
+          // Keep the last report visible until its freshness limit expires.
+        } finally {
+          refreshing = false;
+        }
+      };
+      let clock: ReturnType<typeof setInterval> | undefined;
       if (locationPermission === "granted") {
-        void refreshLocation()
-          .then(() => {
-            if (focused) setMapFocusRevision((revision) => revision + 1);
-          })
-          .catch(() => {});
+        void refresh(true);
+        clock = setInterval(() => void refresh(false), 45_000);
       }
       return () => {
         focused = false;
+        clearInterval(clock);
       };
     }, [locationPermission, refreshLocation, mode]),
   );
@@ -78,8 +80,24 @@ export default function Nearby() {
         ),
     [b.people, b.nodeId, b.activeGroupId],
   );
-  const connected = people.filter((person) => person.connected);
-  const pins = connected.flatMap((person) =>
+  const connected = useMemo(() => people.filter((person) => person.connected), [people]);
+  const clockLocations = useMemo(
+    () => [b.location, ...connected.map((person) => person.location)],
+    [b.location, connected],
+  );
+  useFocusEffect(
+    useCallback(() => {
+      let clock: ReturnType<typeof setTimeout>;
+      const tick = () => {
+        const current = Date.now();
+        setNow(current);
+        clock = setTimeout(tick, mode === "map" ? locationRefreshDelay(clockLocations, current) : 30_000);
+      };
+      tick();
+      return () => clearTimeout(clock);
+    }, [mode, clockLocations]),
+  );
+  const pins = useMemo(() => connected.flatMap((person) =>
     freshLocation(person.location, now)
       ? [
           {
@@ -89,7 +107,11 @@ export default function Nearby() {
           },
         ]
       : [],
-  );
+  ), [connected, now]);
+  const requests = useMemo(() => b.requests.filter((request) =>
+    (request.groupId ?? null) === b.activeGroupId &&
+    (request.status === "active" || request.status === "accepted"),
+  ), [b.requests, b.activeGroupId]);
   const finding = b.findingPeople || findAction.busy;
   const unavailable = b.bluetooth === "unsupported";
   const status = finding
@@ -103,7 +125,7 @@ export default function Nearby() {
           : !b.relayEnabled
             ? "Nearby sharing is off"
             : connected.length
-              ? "Connected nearby"
+              ? `${connected.length} connected`
               : b.relayRunning
                 ? "Ready to connect"
                 : "Not connected";
@@ -111,7 +133,7 @@ export default function Nearby() {
     <Screen title="Nearby" main>
       <View style={s.titleRow}>
         <Text accessibilityRole="header" style={s.title}>Nearby</Text>
-        <View style={s.audience}><AudiencePicker label="Audience" /></View>
+        <View style={s.audience}><AudiencePicker label="Audience" compact /></View>
       </View>
       <View accessibilityRole="tablist" style={s.segments}>
         {(["people", "map"] as const).map((item) => (
@@ -126,6 +148,7 @@ export default function Nearby() {
               pressed && s.pressed,
             ]}
           >
+            {item === "people" ? <Users size={18} color={mode === item ? c.background : c.secondary} /> : <Map size={18} color={mode === item ? c.background : c.secondary} />}
             <Text
               style={[s.segmentText, mode === item && s.segmentTextSelected]}
             >
@@ -194,12 +217,6 @@ export default function Nearby() {
                         ? "Connected"
                         : `Last seen ${age(person.lastSeenAt)}`}
                     </Text>
-                    {person.connected && freshLocation(person.location, now) && (
-                      <View style={s.locationMeta}>
-                        <MapPin size={12} color={c.secondary} />
-                        <Text style={s.locationText}>Position · {locationLabel(person.location, now)}</Text>
-                      </View>
-                    )}
                   </View>
                   {person.unreadCount > 0 && (
                     <View style={s.unread}>
@@ -208,7 +225,7 @@ export default function Nearby() {
                       </Text>
                     </View>
                   )}
-                  <MessageCircle size={20} color={c.secondary} />
+                  <View style={s.messageAction}><MessageCircle size={18} color={c.text} /><Text style={s.messageLabel}>Message</Text></View>
                 </Pressable>
               ))}
             </View>
@@ -224,8 +241,8 @@ export default function Nearby() {
                 {unavailable
                   ? "This device or build cannot connect over Bluetooth."
                   : b.activeGroupId
-                    ? "Open this group on both phones, then tap Find people."
-                    : "Open Beacon on another phone, then tap Find people."}
+                    ? "Open the same group on both phones."
+                    : "Open Beacon on another phone nearby."}
               </Text>
             </View>
           )}
@@ -255,10 +272,7 @@ export default function Nearby() {
             ownLocation={b.location}
             focusRevision={mapFocusRevision}
             pins={pins}
-            requests={b.requests.filter((request) =>
-              (request.groupId ?? null) === b.activeGroupId &&
-              (request.status === "active" || request.status === "accepted"),
-            )}
+            requests={requests}
             connectedCount={connected.length}
             internet={b.internet}
             map={b.map}
@@ -266,7 +280,7 @@ export default function Nearby() {
             onSaveArea={b.downloadMap}
             onCancelSave={b.cancelMapDownload}
             now={now}
-            height={Math.max(280, Math.min(400, height * 0.36))}
+            height={Math.max(280, Math.min(460, height * 0.43))}
           />
           {connected.length > 0 && pins.length === 0 && (
             <Text style={s.caption}>
@@ -279,13 +293,13 @@ export default function Nearby() {
   );
 }
 const s = StyleSheet.create({
-  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  audience: { maxWidth: "65%", flexShrink: 1 },
-  title: { fontFamily: fonts.headline, fontSize: 24, lineHeight: 30, color: c.text },
+  titleRow: { gap: 4 },
+  audience: { alignSelf: "flex-start", maxWidth: "100%" },
+  title: { fontFamily: fonts.headline, fontSize: 38, lineHeight: 43, letterSpacing: -1, color: c.text },
   segments: {
     flexDirection: "row",
     padding: 4,
-    borderRadius: 16,
+    borderRadius: 12,
     backgroundColor: c.card,
     gap: 4,
   },
@@ -294,33 +308,35 @@ const s = StyleSheet.create({
     minHeight: 48,
     alignItems: "center",
     justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRadius: 12,
+    borderRadius: 9,
   },
-  segmentSelected: { backgroundColor: c.raised, borderWidth: 1, borderColor: c.border },
+  segmentSelected: { backgroundColor: c.text },
   segmentText: {
     fontFamily: fonts.medium,
     fontSize: 15,
     lineHeight: 21,
     color: c.secondary,
   },
-  segmentTextSelected: { color: c.text },
+  segmentTextSelected: { color: c.background },
   connection: { flexDirection: "row", alignItems: "center", gap: 16 },
   status: {
     flex: 1,
-    fontFamily: fonts.body,
-    fontSize: 13,
+    fontFamily: fonts.medium,
+    fontSize: 15,
     lineHeight: 20,
-    color: c.secondary,
+    color: c.text,
   },
   find: {
     minHeight: 48,
     maxWidth: "52%",
-    borderRadius: 14,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: c.border,
-    backgroundColor: c.card,
+    backgroundColor: "transparent",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -341,24 +357,22 @@ const s = StyleSheet.create({
     lineHeight: 20,
     color: c.secondary,
   },
-  people: { gap: 10 },
+  people: {},
   person: {
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
-    padding: 16,
-    minHeight: 94,
-    backgroundColor: c.card,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: c.border,
+    paddingVertical: 18,
+    minHeight: 88,
+    borderBottomWidth: 1,
+    borderBottomColor: c.border,
   },
-  locationMeta: { flexDirection: "row", alignItems: "center", gap: 4 },
-  locationText: { fontFamily: fonts.body, fontSize: 12, lineHeight: 18, color: c.secondary },
+  messageAction: { flexDirection: "row", alignItems: "center", gap: 6 },
+  messageLabel: { fontFamily: fonts.medium, fontSize: 13, color: c.text },
   avatar: {
     width: 48,
     height: 48,
-    borderRadius: 16,
+    borderRadius: 24,
     backgroundColor: c.raised,
     alignItems: "center",
     justifyContent: "center",
@@ -371,11 +385,11 @@ const s = StyleSheet.create({
     position: "absolute",
     bottom: -1,
     right: -1,
-    backgroundColor: "#82B9AA",
+    backgroundColor: "#87C999",
     borderWidth: 2,
     borderColor: c.background,
   },
-  personCopy: { flex: 1, gap: 4 },
+  personCopy: { flex: 1, gap: 4, minWidth: 0 },
   personName: {
     fontFamily: fonts.medium,
     fontSize: 18,
@@ -395,17 +409,13 @@ const s = StyleSheet.create({
   empty: {
     alignItems: "center",
     paddingHorizontal: 24,
-    paddingVertical: 40,
-    borderWidth: 1,
-    borderColor: c.border,
-    borderRadius: 16,
-    backgroundColor: c.card,
-    gap: 14,
+    paddingVertical: 36,
+    gap: 10,
   },
   emptyIcon: {
-    width: 68,
-    height: 68,
-    borderRadius: 20,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: c.raised,
     alignItems: "center",
     justifyContent: "center",
@@ -413,7 +423,7 @@ const s = StyleSheet.create({
   },
   emptyTitle: {
     fontFamily: fonts.headline,
-    fontSize: 24,
+    fontSize: 25,
     lineHeight: 30,
     color: c.text,
     textAlign: "center",
@@ -426,7 +436,7 @@ const s = StyleSheet.create({
     textAlign: "center",
     maxWidth: 300,
   },
-  sharing: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: c.card, borderRadius: 16, borderWidth: 1, borderColor: c.border },
+  sharing: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 4 },
   sharingCopy: { flex: 1, gap: 4 },
   sharingTitle: {
     fontFamily: fonts.medium,

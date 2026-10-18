@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -18,6 +18,7 @@ import { CAMPUS_BOUNDS, campusStyle } from "./campusMapStyle";
 const ONLINE_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const CAMPUS_CENTER = [-122.306, 47.655];
 const OFFLINE_STYLE = JSON.stringify(campusStyle);
+const EMPTY_REQUESTS: RequestView[] = [];
 export type NearbyLocation = {
   latitude: number;
   longitude: number;
@@ -54,6 +55,115 @@ export function locationLabel(location: NearbyLocation, now: number) {
   return `${age}${location.accuracy != null && Number.isFinite(location.accuracy) ? ` · ±${Math.round(location.accuracy)} m` : ""}`;
 }
 
+// Captions do not need a second-by-second clock. Wake at an exact freshness
+// boundary when it comes sooner so an expired peer position never lingers.
+export function locationRefreshDelay(
+  locations: (LocationReport | NearbyLocation | undefined)[],
+  now: number,
+) {
+  let delay = 30_000;
+  for (const location of locations) {
+    if (!Number.isFinite(location?.capturedAt)) continue;
+    for (const boundary of [
+      location!.capturedAt! - LOCATION_LIMITS.futureSkewMs,
+      location!.capturedAt! + LOCATION_LIMITS.ttlMs,
+    ]) {
+      if (boundary > now) delay = Math.min(delay, boundary - now);
+    }
+  }
+  return Math.max(1, delay);
+}
+
+type MapMarker = {
+  id: string;
+  title: string;
+  label: string;
+  kind: "you" | "person" | "request";
+  longitude: number;
+  latitude: number;
+  selected: boolean;
+};
+type MapSurfaceProps = {
+  mapKey: string;
+  mapStyle: string;
+  bundled: boolean;
+  camera: RefObject<CameraRef | null>;
+  longitude: number;
+  latitude: number;
+  hasLocations: boolean;
+  markers: MapMarker[];
+  onLoading: () => void;
+  onReady: () => void;
+  onFailed: () => void;
+  onRegionChange: (region: { geometry: { coordinates: number[] } }) => void;
+  onSelect: (kind: MapMarker["kind"], id: string) => void;
+};
+
+// Keep timer ticks, download progress and preview text out of MapLibre's native
+// subtree. Only marker appearance/coordinates, selection or map configuration
+// should update it; capturedAt and accuracy belong to the surrounding UI.
+const MapSurface = memo(function MapSurface({
+  mapKey, mapStyle, bundled, camera, longitude, latitude, hasLocations,
+  markers, onLoading, onReady, onFailed, onRegionChange, onSelect,
+}: MapSurfaceProps) {
+  const defaultSettings = useMemo(() => ({
+    centerCoordinate: [longitude, latitude],
+    zoomLevel: hasLocations ? 16 : 14.7,
+  }), [longitude, latitude, hasLocations]);
+  return (
+    <MapLibre.MapView
+      key={mapKey}
+      style={s.map}
+      mapStyle={mapStyle}
+      onWillStartLoadingMap={onLoading}
+      onDidFinishLoadingMap={onReady}
+      onRegionDidChange={onRegionChange}
+      onDidFailLoadingMap={onFailed}
+      logoEnabled={false}
+      attributionEnabled={!bundled}
+      attributionPosition={ATTRIBUTION_POSITION}
+      compassEnabled={false}
+      pitchEnabled={false}
+      rotateEnabled={false}
+    >
+      <MapLibre.Camera ref={camera} defaultSettings={defaultSettings} />
+      {markers.map((marker) => (
+        <MapLibre.PointAnnotation
+          key={marker.id}
+          id={marker.id}
+          title={marker.title}
+          coordinate={[marker.longitude, marker.latitude]}
+          selected={marker.selected}
+          onSelected={marker.kind === "you" ? undefined : () => onSelect(marker.kind, marker.id)}
+        >
+          {marker.kind === "you" ? (
+            <View collapsable={false} style={s.youMarker}><View style={s.youDot} /><Text style={s.youText}>You</Text></View>
+          ) : (
+            <View collapsable={false} style={marker.kind === "request"
+              ? [s.sosMarker, marker.selected && s.selectedSosMarker]
+              : [s.personMarker, marker.selected && s.selectedMarker]}>
+              <Text maxFontSizeMultiplier={1.4} style={marker.kind === "request" ? s.sosText : s.initial}>{marker.label}</Text>
+            </View>
+          )}
+        </MapLibre.PointAnnotation>
+      ))}
+    </MapLibre.MapView>
+  );
+}, (previous, next) => {
+  for (const key of Object.keys(next) as (keyof MapSurfaceProps)[]) {
+    if (key !== "markers" && previous[key] !== next[key]) return false;
+  }
+  return previous.markers.length === next.markers.length &&
+    previous.markers.every((marker, index) => {
+      const other = next.markers[index];
+      return marker.id === other.id && marker.title === other.title &&
+        marker.label === other.label && marker.kind === other.kind &&
+        marker.longitude === other.longitude && marker.latitude === other.latitude &&
+        marker.selected === other.selected;
+    });
+});
+const ATTRIBUTION_POSITION = { bottom: 10, left: 10 };
+
 function fitLocations(
   camera: CameraRef | null,
   coordinates: number[][],
@@ -88,7 +198,7 @@ export default function NearbyMap({
   ownLocation,
   focusRevision,
   pins,
-  requests = [],
+  requests = EMPTY_REQUESTS,
   internet,
   map,
   onLocate,
@@ -139,7 +249,7 @@ export default function NearbyMap({
     coordinate[0] <= bounds[2] &&
     coordinate[1] >= bounds[1] &&
     coordinate[1] <= bounds[3];
-  const areaCenter = [(bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2];
+  const areaCenter = useMemo(() => [(bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2], [bounds]);
   const mapStyle = online
     ? ONLINE_STYLE
     : saved
@@ -150,17 +260,17 @@ export default function NearbyMap({
     ownLocation.source === "device" && freshLocation(ownLocation, now)
       ? ownLocation
       : undefined;
-  const validPins = pins.filter((pin) => freshLocation(pin.location, now));
+  const validPins = useMemo(() => pins.filter((pin) => freshLocation(pin.location, now)), [pins, now]);
   const selected = validPins.find((pin) => pin.nodeId === selectedId);
   // SOS coordinates are the location attached to a request, never a live peer fix.
-  const requestPins = requests.filter((request) =>
+  const requestPins = useMemo(() => requests.filter((request) =>
     (request.status === "active" || request.status === "accepted") &&
     request.location.source !== "unavailable" &&
     Number.isFinite(request.location.latitude) &&
     Number.isFinite(request.location.longitude) &&
     Math.abs(request.location.latitude!) <= 90 &&
     Math.abs(request.location.longitude!) <= 180,
-  );
+  ), [requests]);
   const selectedRequest = requestPins.find((request) => request.id === selectedRequestId);
   const coordinates = [
     ...(own ? [[own.longitude, own.latitude]] : []),
@@ -179,10 +289,14 @@ export default function NearbyMap({
     setOfflineFailed(false);
   }, [internet]);
   useEffect(() => {
-    if (!online || ready) return;
-    const timeout = setTimeout(() => setOnlineFailed(true), 12_000);
+    if (ready || (offlineFailed && !online && !saved)) return;
+    const timeout = setTimeout(() => {
+      if (online) setOnlineFailed(true);
+      else if (saved) setSavedFailed(true);
+      else setOfflineFailed(true);
+    }, 12_000);
     return () => clearTimeout(timeout);
-  }, [online, ready]);
+  }, [online, saved, ready, offlineFailed]);
   useEffect(() => {
     if (!ready || !coordinates.length) return;
     const focusNeedsFit = fittedFocusRevision.current !== focusRevision;
@@ -224,6 +338,32 @@ export default function NearbyMap({
       setLocating(false);
     }
   };
+  const onLoading = useCallback(() => {
+    setReady(false);
+    centered.current = false;
+    fittedPeers.current = false;
+  }, []);
+  const onReady = useCallback(() => setReady(true), []);
+  const onFailed = useCallback(() => {
+    setReady(false);
+    if (online) setOnlineFailed(true);
+    else if (saved) setSavedFailed(true);
+    else setOfflineFailed(true);
+  }, [online, saved]);
+  const onRegionChange = useCallback((region: { geometry: { coordinates: number[] } }) => {
+    const next = region.geometry.coordinates;
+    setViewCenter((previous) => previous[0] === next[0] && previous[1] === next[1] ? previous : next);
+  }, []);
+  const onSelect = useCallback((kind: MapMarker["kind"], id: string) => {
+    setSelectedId(kind === "person" ? id.slice("person-".length) : undefined);
+    setSelectedRequestId(kind === "request" ? id.slice("request-".length) : undefined);
+  }, []);
+  const markers: MapMarker[] = [
+    ...(own ? [{ id: "your-location", title: "Your reported location", label: "You", kind: "you" as const, longitude: own.longitude, latitude: own.latitude, selected: false }] : []),
+    ...validPins.map((pin) => ({ id: `person-${pin.nodeId}`, title: pin.name, label: pin.name.trim().slice(0, 2).toUpperCase() || "?", kind: "person" as const, longitude: pin.location.longitude, latitude: pin.location.latitude, selected: pin.nodeId === selectedId })),
+    ...requestPins.map((request) => ({ id: `request-${request.id}`, title: `${request.name} · SOS reported location`, label: "SOS", kind: "request" as const, longitude: request.location.longitude!, latitude: request.location.latitude!, selected: request.id === selectedRequestId })),
+  ];
+  const initialCenter = coordinates[0] ?? areaCenter;
   return (
     <View style={s.frame}>
       <View style={{ height }}>
@@ -231,101 +371,36 @@ export default function NearbyMap({
           <View style={s.unavailable}>
             <MapPin size={30} color={c.secondary} />
             <Text style={s.name}>Map unavailable</Text>
-            <Text style={s.caption}>Your conversations are in People.</Text>
+            <Pressable accessibilityRole="button" onPress={() => { setOfflineFailed(false); setSavedFailed(false); setOnlineFailed(false); }} style={s.retry}>
+              <Text style={s.messageText}>Reload map</Text>
+            </Pressable>
           </View>
         ) : (
-          <MapLibre.MapView
-            key={
-              online
-                ? "online"
-                : saved
-                  ? `saved-${map.styleUrl}-${map.updatedAt ?? 0}`
-                  : "bundled"
-            }
-            style={s.map}
+          <MapSurface
+            mapKey={online ? "online" : saved ? `saved-${map.styleUrl}-${map.updatedAt ?? 0}` : "bundled"}
             mapStyle={mapStyle}
-            onWillStartLoadingMap={() => {
-              setReady(false);
-              centered.current = false;
-              fittedPeers.current = false;
-            }}
-            onDidFinishLoadingMap={() => setReady(true)}
-            onRegionDidChange={(region) =>
-              setViewCenter(region.geometry.coordinates)
-            }
-            onDidFailLoadingMap={() => {
-              setReady(false);
-              if (online) setOnlineFailed(true);
-              else if (saved) setSavedFailed(true);
-              else setOfflineFailed(true);
-            }}
-            logoEnabled={false}
-            attributionEnabled={!bundled}
-            attributionPosition={{ bottom: 10, left: 10 }}
-            compassEnabled={false}
-            pitchEnabled={false}
-            rotateEnabled={false}
-          >
-            <MapLibre.Camera
-              ref={camera}
-              defaultSettings={{
-                centerCoordinate: coordinates[0] ?? areaCenter,
-                zoomLevel: coordinates.length ? 16 : 14.7,
-              }}
-            />
-            {own && (
-              <MapLibre.PointAnnotation
-                id="your-location"
-                title="Your reported location"
-                coordinate={[own.longitude, own.latitude]}
-              >
-                <View collapsable={false} style={s.youMarker}>
-                  <View style={s.youDot} />
-                  <Text style={s.youText}>You</Text>
-                </View>
-              </MapLibre.PointAnnotation>
-            )}
-            {validPins.map((pin) => (
-              <MapLibre.PointAnnotation
-                key={pin.nodeId}
-                id={`person-${pin.nodeId}`}
-                title={pin.name}
-                coordinate={[pin.location.longitude, pin.location.latitude]}
-                selected={selectedId === pin.nodeId}
-                onSelected={() => { setSelectedId(pin.nodeId); setSelectedRequestId(undefined); }}
-              >
-                <View
-                  collapsable={false}
-                  style={[
-                    s.personMarker,
-                    selectedId === pin.nodeId && s.selectedMarker,
-                  ]}
-                >
-                  <Text style={s.initial}>
-                    {pin.name.trim().slice(0, 2).toUpperCase() || "?"}
-                  </Text>
-                </View>
-              </MapLibre.PointAnnotation>
-            ))}
-            {requestPins.map((request) => (
-              <MapLibre.PointAnnotation
-                key={request.id}
-                id={`request-${request.id}`}
-                title={`${request.name} · SOS reported location`}
-                coordinate={[request.location.longitude!, request.location.latitude!]}
-                selected={selectedRequestId === request.id}
-                onSelected={() => { setSelectedRequestId(request.id); setSelectedId(undefined); }}
-              >
-                <View collapsable={false} style={[s.sosMarker, selectedRequestId === request.id && s.selectedSosMarker]}>
-                  <Text style={s.sosText}>SOS</Text>
-                </View>
-              </MapLibre.PointAnnotation>
-            ))}
-          </MapLibre.MapView>
+            bundled={bundled}
+            camera={camera}
+            longitude={initialCenter[0]}
+            latitude={initialCenter[1]}
+            hasLocations={coordinates.length > 0}
+            markers={markers}
+            onLoading={onLoading}
+            onReady={onReady}
+            onFailed={onFailed}
+            onRegionChange={onRegionChange}
+            onSelect={onSelect}
+          />
         )}
-        {!online && outsideCoverage && (
+        {!ready && !offlineFailed && (
           <View pointerEvents="none" style={s.mapTag}>
-            <Text style={s.tagText}>No offline streets here</Text>
+            <ActivityIndicator size="small" color={c.text} />
+            <Text style={s.tagText}>Loading map</Text>
+          </View>
+        )}
+        {ready && !online && outsideCoverage && (
+          <View pointerEvents="none" style={s.mapTag}>
+            <Text style={s.tagText}>Streets not saved here</Text>
           </View>
         )}
         <Pressable
@@ -348,6 +423,7 @@ export default function NearbyMap({
             onPress={() => {
               setShowOnline(!showOnline);
               setOnlineFailed(false);
+              setOfflineFailed(false);
               setReady(false);
             }}
             style={[
@@ -431,11 +507,10 @@ export default function NearbyMap({
         )}
       </View>
       <View style={s.mapFooter}>
-        <View style={s.legend}>
-          <View style={s.legendItem}><View style={s.legendYou} /><Text style={s.caption}>You</Text></View>
-          <View style={s.legendItem}><View style={s.legendSos} /><Text style={s.caption}>SOS · {requestPins.length}</Text></View>
-          <View style={s.legendItem}><View style={s.legendPerson} /><Text style={s.caption}>Sharing · {validPins.length}</Text></View>
-        </View>
+        {(requestPins.length > 0 || validPins.length > 0) && <View style={s.legend}>
+          {requestPins.length > 0 && <View style={s.legendItem}><View style={s.legendSos} /><Text style={s.caption}>{requestPins.length} SOS</Text></View>}
+          {validPins.length > 0 && <View style={s.legendItem}><View style={s.legendPerson} /><Text style={s.caption}>{validPins.length} sharing location</Text></View>}
+        </View>}
         <Text style={s.caption}>
           {online
             ? "Online map"
@@ -447,7 +522,12 @@ export default function NearbyMap({
                 ? "Offline · saved area"
                 : "Offline · UW area"}
         </Text>
-        {own && <Text style={s.caption}>You · {locationLabel(own, now)}</Text>}
+        {own && <Text style={s.caption}>Your location · {locationLabel(own, now)}</Text>}
+        {outsideCoverage && !online && internet === true && (
+          <Pressable accessibilityRole="button" onPress={() => { setOnlineFailed(false); setOfflineFailed(false); setShowOnline(true); setReady(false); }} style={s.recoveryAction}>
+            <Text style={s.actionText}>Load streets online</Text>
+          </Pressable>
+        )}
         {(actionError || map.error) && (
           <Text accessibilityLiveRegion="polite" style={s.caption}>
             {actionError || map.error}
@@ -516,7 +596,7 @@ export default function NearbyMap({
 }
 const s = StyleSheet.create({
   frame: {
-    borderRadius: 16,
+    borderRadius: 12,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: c.border,
@@ -556,7 +636,7 @@ const s = StyleSheet.create({
     right: 14,
     width: 48,
     height: 48,
-    borderRadius: 16,
+    borderRadius: 12,
     backgroundColor: c.background,
     alignItems: "center",
     justifyContent: "center",
@@ -567,13 +647,13 @@ const s = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: "#82B9AA",
+    backgroundColor: c.text,
     borderWidth: 3,
     borderColor: c.background,
     alignItems: "center",
     justifyContent: "center",
   },
-  selectedMarker: { borderWidth: 5, borderColor: c.secondary },
+  selectedMarker: { borderWidth: 5, borderColor: "#729DAE" },
   initial: { fontFamily: fonts.medium, fontSize: 14, color: c.background },
   youMarker: {
     backgroundColor: c.background,
@@ -589,7 +669,7 @@ const s = StyleSheet.create({
     width: 9,
     height: 9,
     borderRadius: 5,
-    backgroundColor: "#79B9F1",
+    backgroundColor: "#729DAE",
   },
   youText: { fontFamily: fonts.medium, fontSize: 11, color: c.text },
   mapFooter: {
@@ -598,14 +678,13 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: c.border,
   },
-  mapOptions: { position: "absolute", top: 14, right: 14, width: 48, height: 48, borderRadius: 16, backgroundColor: c.background, borderWidth: 1, borderColor: c.border, alignItems: "center", justifyContent: "center" },
-  mapActions: { position: "absolute", top: 70, right: 14, borderRadius: 16, backgroundColor: c.background, borderWidth: 1, borderColor: c.border, padding: 6 },
+  mapOptions: { position: "absolute", top: 14, right: 14, width: 48, height: 48, borderRadius: 12, backgroundColor: c.background, borderWidth: 1, borderColor: c.border, alignItems: "center", justifyContent: "center" },
+  mapActions: { position: "absolute", top: 70, right: 14, borderRadius: 12, backgroundColor: c.background, borderWidth: 1, borderColor: c.border, padding: 6 },
   mapAction: { minHeight: 48, justifyContent: "center", paddingHorizontal: 14 },
   legend: { flexDirection: "row", flexWrap: "wrap", gap: 16, marginBottom: 4 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
-  legendYou: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#79B9F1" },
   legendSos: { width: 7, height: 7, borderRadius: 2, backgroundColor: c.redLabel },
-  legendPerson: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#82B9AA" },
+  legendPerson: { width: 7, height: 7, borderRadius: 4, backgroundColor: c.text },
   sosMarker: { minWidth: 46, height: 42, borderRadius: 12, backgroundColor: c.red, borderWidth: 2, borderColor: c.background, alignItems: "center", justifyContent: "center", paddingHorizontal: 7 },
   selectedSosMarker: { borderColor: c.text, borderWidth: 3 },
   sosText: { fontFamily: fonts.medium, fontSize: 12, color: c.onAction },
@@ -657,6 +736,8 @@ const s = StyleSheet.create({
     padding: 12,
   },
   messageText: { fontFamily: fonts.medium, fontSize: 15, color: c.background },
+  retry: { minHeight: 48, paddingHorizontal: 24, paddingVertical: 14, backgroundColor: c.text, borderRadius: 10 },
+  recoveryAction: { minHeight: 48, justifyContent: "center", alignItems: "center", borderWidth: 1, borderColor: c.border, borderRadius: 10, marginTop: 6 },
   disabled: { opacity: 0.45 },
   pressed: { opacity: 0.7 },
 });
