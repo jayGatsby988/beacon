@@ -4,17 +4,6 @@ import AVFoundation
 import UIKit
 import ExpoModulesCore
 
-private final class BeaconVoiceWrite {
-  let data: Data
-  let audio: Bool
-  let created = ProcessInfo.processInfo.systemUptime
-  var offset = 0
-  init(_ data: Data, audio: Bool) {
-    self.data = Data([UInt8(data.count >> 8), UInt8(data.count & 255)]) + data
-    self.audio = audio
-  }
-}
-
 final class BeaconVoiceSession: NSObject, StreamDelegate {
   let callId: String
   let peerId: String
@@ -168,7 +157,7 @@ final class BeaconVoiceSession: NSObject, StreamDelegate {
       if written < 0 { finish("stream_write_failed", failed: true); return }
       if written == 0 { return }
       sentBytes += written
-      job.offset += written
+      job.didWrite(written)
       if job.offset == job.data.count { writes.removeFirst(); if job.audio { sentFrames += 1 } }
     }
   }
@@ -179,7 +168,7 @@ final class BeaconVoiceSession: NSObject, StreamDelegate {
     if (!ready && now - (attachedAt ?? created) > (attachedAt == nil ? 45 : 12)) || (ready && now - lastReceived > 10) {
       finish("voice_timeout", failed: true); return
     }
-    if let first = writes.first, now - first.created > (first.offset > 0 ? 0.5 : 2) {
+    if let first = writes.first, first.isStalled(at: now) {
       finish("voice_backpressure", failed: true); return
     }
     read(); pump()

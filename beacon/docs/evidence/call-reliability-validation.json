@@ -1,0 +1,48 @@
+{
+  "checkedAt": "2026-10-18T17:07:31.153934+00:00",
+  "node": "24.19.0",
+  "tests": {
+    "total": 217,
+    "pass": 216,
+    "fail": 0,
+    "skip": 1,
+    "skippedCase": "Timescale integration \u2014 database not configured"
+  },
+  "typecheck": "passed",
+  "lint": "passed",
+  "gitDiffCheck": "passed",
+  "podInstall": "passed",
+  "nativeChecks": "passed: diagnostics, crypto, partial-write progress,22 PCM converter cases,350 real Opus wrapper frames,offline playback burst/cap and permit lifetime regression",
+  "build": {
+    "status": "blocked_by_disk_space",
+    "configuration": "iOS Release, arm64",
+    "exitCode": 65,
+    "error": "No space left on device (ENOSPC) in generated native build outputs",
+    "retry": "Incremental retry after clearing disposable download/build caches also exhausted disk space. No further retries started.",
+    "completeArtifactVerified": false
+  },
+  "installed": false,
+  "productionSourceSha256": {
+    "apps/mobile/src/services/BeaconService.ts": "77ace48baec567c805c728994738ce4fc461b6d2586b66b151f17f6e7c82739f",
+    "apps/mobile/src/services/CallService.ts": "247c8a9350baa03ff16b812109af927f63ab376f7861b7715fd7ba22d5b669a3",
+    "apps/mobile/src/components/CallOverlay.tsx": "09096a0467161e72d846446282fbec56e0599ebf2f9b15ed7125697c900914ed",
+    "apps/mobile/modules/beacon-ble/ios/BeaconVoiceAudio.swift": "0630378e319a823c16ee7358d6e1d5bc8be404452e9d8654395977d1f8b097e5",
+    "apps/mobile/modules/beacon-ble/ios/BeaconVoicePCM.swift": "7f1753ae8c5479e49912ef6235d10470861a136d18f773089240f34bbb328114",
+    "apps/mobile/modules/beacon-ble/ios/BeaconVoiceSession.swift": "75fe2c4157eb30ce019905ebeab00aab865f7867f1c06eca1457e01c0bd33b13",
+    "apps/mobile/modules/beacon-ble/ios/BeaconVoiceWrite.swift": "b01c29f4520d0333e214f9630a27b1ced0865d967b4a8137de6852f4657ac728"
+  },
+  "gitHead": "12d5cb03872dcc03bc5b1cb234addaaad8d6e3b4",
+  "hardwareVerification": "Not performed: all physical iPhones unavailable. No claim of successful two-way call audio.",
+  "logs": [
+    "tmp/call-check-current/tests.log",
+    "tmp/call-check-current/typecheck.log",
+    "tmp/call-check-current/lint.log",
+    "tmp/call-check-current/native-voice.log",
+    "tmp/call-check-current/device-build.log"
+  ],
+  "hardwareValidation": {
+    "status": "not_performed_for_this_update",
+    "reason": "No physical iPhones available at final device check. Live microphone, speaker, Bluetooth-only call, and route-switch behavior remain unverified."
+  },
+  "scope": "Automated software checks only. This evidence does not establish end-to-end hardware calling or emergency readiness."
+}

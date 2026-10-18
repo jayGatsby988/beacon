@@ -42,6 +42,10 @@ with tempfile.TemporaryDirectory(prefix='beacon-voice-check-') as temporary:
     subprocess.run(['xcrun', 'swiftc', str(native / 'BeaconVoiceCrypto.swift'),
                     str(native / 'tests/BeaconVoiceCryptoTests.swift'), '-o', str(crypto_test)], check=True)
     subprocess.run([str(crypto_test)], check=True)
+    write_test = area / 'write-test'
+    subprocess.run(['xcrun', 'swiftc', str(native / 'BeaconVoiceWrite.swift'),
+                    str(native / 'tests/BeaconVoiceWriteTests.swift'), '-o', str(write_test)], check=True)
+    subprocess.run([str(write_test)], check=True)
     pcm_test = area / 'pcm-test'
     subprocess.run(['xcrun', 'swiftc', str(native / 'BeaconVoicePCM.swift'),
                     str(native / 'tests/BeaconVoicePCMTests.swift'), '-o', str(pcm_test)], check=True)
