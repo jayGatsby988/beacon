@@ -376,3 +376,63 @@ test("turning location sharing off cancels an outstanding permission prompt", as
   assert.equal(h.service.state.locationSharing, false);
   assert.ok(h.writes.every((p) => JSON.parse(p.wire).type !== "location"));
 });
+
+test("a rejected optional GPS lookup cannot leave a global action error or block SOS", async (t) => {
+  const h = fixture({
+    location: async () => ({ status: "granted", granted: true }),
+    position: async () => { throw new Error("kCLErrorDomain error 0"); },
+  });
+  t.after(() => h.service.dispose());
+  await h.service.initialize();
+  await turn();
+  assert.equal(h.service.state.location.source, "unavailable");
+  assert.equal(h.service.state.error, undefined);
+  const requestId = await h.service.sendSOS();
+  assert.ok(h.service.state.requests.some((request) => request.id === requestId));
+  await assert.rejects(h.service.state.locateOnMap(), /GPS is unavailable/, "an explicit location action still explains the missing fix");
+  assert.equal(h.service.state.error, undefined);
+});
+
+test("optional location permission inspection failures leave offline SOS available", async (t) => {
+  const h = fixture({ location: async () => { throw new Error("Permission inspection unavailable"); } });
+  t.after(() => h.service.dispose());
+  await h.service.initialize();
+  await turn();
+  assert.equal(h.service.state.location.source, "unavailable");
+  assert.equal(h.service.state.error, undefined);
+  assert.equal(h.service.state.relayRunning, true);
+  const requestId = await h.service.sendSOS();
+  assert.ok(h.service.state.requests.some((request) => request.id === requestId));
+});
+
+test("transient GPS failure preserves a recent fix without making its timestamp fresh; stale or revoked fixes disappear", async (t) => {
+  const capturedAt = Date.now();
+  let sensorAvailable = true;
+  let permissionGranted = true;
+  const h = fixture({
+    location: async () => ({ status: permissionGranted ? "granted" : "denied", granted: permissionGranted }),
+    position: async () => {
+      if (!sensorAvailable) throw new Error("Location temporarily unavailable");
+      return { coords: { latitude: 47.65, longitude: -122.3, accuracy: 25 }, timestamp: capturedAt };
+    },
+  });
+  t.after(() => h.service.dispose());
+  await h.service.initialize();
+  await turn();
+  assert.equal(h.service.state.location.capturedAt, capturedAt);
+  sensorAvailable = false;
+  await h.service.state.refreshLocation();
+  assert.equal(h.service.state.location.latitude, 47.65);
+  assert.equal(h.service.state.location.capturedAt, capturedAt);
+  t.mock.method(Date, "now", () => capturedAt + protocol.LOCATION_LIMITS.ttlMs);
+  await h.service.state.refreshLocation();
+  assert.equal(h.service.state.location.source, "unavailable", "expired fixes cannot survive a failed refresh");
+  t.mock.method(Date, "now", () => capturedAt);
+  sensorAvailable = true;
+  await h.service.state.refreshLocation();
+  assert.equal(h.service.state.location.source, "device");
+  permissionGranted = false;
+  await h.service.state.refreshLocation();
+  assert.equal(h.service.state.location.source, "unavailable", "permission revocation removes even a recent fix");
+  assert.equal(h.service.state.error, undefined);
+});

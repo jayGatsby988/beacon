@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 import { randomBytes, randomUUID } from "node:crypto";
+import { ed25519 } from "@noble/curves/ed25519";
 import { DatabaseSync } from "node:sqlite";
 import ts from "typescript";
 import * as protocol from "../../packages/protocol/src/index.js";
@@ -71,6 +72,8 @@ class Adapter implements Database {
 }
 interface Service {
   state: BeaconState;
+  subscribe(listener: () => void): () => void;
+  refresh(): Promise<void>;
   initialize(): Promise<void>;
   dispose(): Promise<void>;
   receiveTail: Promise<unknown>;
@@ -101,6 +104,7 @@ class World {
   failTokenDelete = false;
   tokenWrites = 0;
   tokenDeletes = 0;
+  requestDerivations = 0;
   async open(name: string) {
     mkdirSync(join(this.directory, name), { recursive: true });
     if (!this.secure.has(name)) this.secure.set(name, new Map());
@@ -158,7 +162,13 @@ class World {
       "expo-file-system/legacy": {},
       "base64-js": base64,
       zod: { z },
-      "@beacon/protocol": protocol,
+      "@beacon/protocol": {
+        ...protocol,
+        deriveRequests: (...args: Parameters<typeof protocol.deriveRequests>) => {
+          this.requestDerivations++;
+          return protocol.deriveRequests(...args);
+        },
+      },
       "../../modules/beacon-ble": {
         ...(this.voice ? {
           getVoiceSupport: async () => ({ supported: true }),
@@ -291,6 +301,71 @@ class World {
     rmSync(this.directory, { recursive: true, force: true });
   }
 }
+
+test("unchanged request refreshes reuse verified derivation and do not notify every screen", { timeout: 15000 }, async (t) => {
+  const world = new World();
+  try {
+    const phone = await world.open("performance");
+    const repository = new Repository(phone.databases.get("beacon.db")!, phone.service.state.nodeId);
+    const sender = protocol.createIdentity(randomBytes);
+    const now = Date.now();
+    for (let index = 0; index < 40; index++) {
+      const envelope = protocol.createEnvelope(sender, {
+        type: "sos",
+        requestId: protocol.createRequestId(sender, randomBytes),
+        destination: "community",
+        payload: { category: "other", note: `Saved request ${index}`, displayName: "Synthetic requester", location: { source: "unavailable", capturedAt: now } },
+      }, now, randomBytes);
+      await repository.saveMessage(envelope, 1, now);
+    }
+    await phone.service.refresh();
+    await world.settle();
+    const snapshot = phone.service.state;
+    const derivations = world.requestDerivations;
+    let notifications = 0;
+    const unsubscribe = phone.service.subscribe(() => notifications++);
+    t.after(unsubscribe);
+    const verify = ed25519.verify;
+    let verifications = 0;
+    t.mock.method(ed25519, "verify", (...args: Parameters<typeof verify>) => {
+      verifications++;
+      return verify(...args);
+    });
+    const start = performance.now();
+    for (let poll = 0; poll < 10; poll++) await phone.service.refresh();
+    t.diagnostic(`10 unchanged refreshes / 40 signed envelopes: ${verifications} signature checks, ${notifications} subscriber notifications, ${(performance.now() - start).toFixed(1)} ms`);
+    assert.equal(notifications, 0, "unchanged polling must not rerender every subscribed screen");
+    assert.equal(phone.service.state, snapshot, "the external-store snapshot stays stable while data is unchanged");
+    assert.equal(world.requestDerivations, derivations, "unchanged verified histories reuse their derived request state");
+    assert.equal(verifications, 0, "unchanged authenticated history must not repeat expensive signature verification");
+    for (let event = 0; event < 100; event++) phone.emit("onState", { state: snapshot.bluetooth, advertising: snapshot.relayRunning, scanning: false });
+    assert.equal(notifications, 0, "repeated native state events must not notify unchanged subscribers");
+
+    const extra = protocol.createEnvelope(sender, {
+      type: "sos", requestId: protocol.createRequestId(sender, randomBytes), destination: "community",
+      payload: { category: "stranded", note: "New request", displayName: "Synthetic requester", location: { source: "unavailable", capturedAt: now } },
+    }, now, randomBytes);
+    await repository.saveMessage(extra, 1, now);
+    await phone.service.refresh();
+    assert.equal(world.requestDerivations, derivations + 1, "new persisted messages invalidate derivation immediately");
+    assert.equal(notifications, 1);
+    assert.equal(phone.service.state.requests.length, 41);
+    await repository.markForwarded("synthetic-relay", extra.id);
+    await phone.service.refresh();
+    assert.equal(world.requestDerivations, derivations + 1, "forwarding does not change authenticated message history");
+    assert.equal(phone.service.state.requests.find((request) => request.id === extra.requestId)?.transport, "forwarded");
+    assert.equal(notifications, 2, "forwarding status remains live while derivation is reused");
+
+    const originalNow = Date.now;
+    t.mock.method(Date, "now", () => now + protocol.LIMITS.maxTtlMs + 1);
+    await phone.service.refresh();
+    assert.equal(notifications, 3, "expiration still updates the view with cached historical derivation");
+    assert.ok(phone.service.state.requests.every((request) => request.status === "expired"));
+    t.mock.method(Date, "now", originalNow);
+  } finally {
+    await world.close();
+  }
+});
 
 test(
   "private SOS stays encrypted on native writes; same invite persists offer/accept/receipt flow while wrong group and Nearby cannot read",
@@ -740,4 +815,34 @@ test("partial incident replacement cannot pair the previous token with a new ser
     await assert.rejects(phone.service.state.syncNow());
     assert.equal(world.cloudRequests, 0, "a failed replacement never sends a request");
   } finally { await world.close(); }
+});
+
+test("repeated accept taps preserve one durable assignment and its confirmed receipt", { timeout: 10000 }, async () => {
+  const world = new World();
+  try {
+    const a = await world.open("requester");
+    const b = await world.open("helper");
+    const id = await a.service.state.sendSOS();
+    world.connect("requester", "helper");
+    await world.drain();
+    await b.service.state.offerHelp(id);
+    await world.drain();
+    const offer = a.service.state.requests.find((request) => request.id === id)!.offers[0];
+    await Promise.all([
+      a.service.state.acceptOffer(id, offer.id),
+      a.service.state.acceptOffer(id, offer.id),
+    ]);
+    await world.drain();
+    const repository = new Repository(a.databases.get("beacon.db")!, a.service.state.nodeId);
+    const before = (await repository.listMessages()).filter((record) => record.envelope.type === "accept");
+    assert.equal(before.length, 1, "double taps must not create conflicting assignments");
+    assert.equal(a.service.state.requests.find((request) => request.id === id)!.offers[0].assignmentReceived, true);
+    await a.service.state.acceptOffer(id, offer.id);
+    const after = (await repository.listMessages()).filter((record) => record.envelope.type === "accept");
+    assert.equal(after.length, 1);
+    assert.equal(after[0].envelope.id, before[0].envelope.id);
+    assert.equal(a.service.state.requests.find((request) => request.id === id)!.offers[0].assignmentReceived, true, "repeated acceptance cannot erase a volunteer confirmation");
+  } finally {
+    await world.close();
+  }
 });
