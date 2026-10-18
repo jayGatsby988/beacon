@@ -1,1 +1,35 @@
-{"name":"beacon-workspace","version":"0.1.0","private":true,"workspaces":["apps/*","packages/*"],"scripts":{"test":"tsx --test tests/**/*.test.ts packages/protocol/tests/*.test.ts apps/api/tests/*.test.ts","typecheck":"tsc -p apps/mobile/tsconfig.json --noEmit && tsc -p apps/api/tsconfig.json --noEmit","mobile":"npm --workspace @beacon/mobile run start","api":"npm --workspace @beacon/api run dev"},"devDependencies":{"typescript":"~5.9.2","tsx":"^4.20.6","@types/node":"^22.0.0"}}
+{
+  "name": "beacon-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "tsx --test tests/**/*.test.ts apps/api/tests/*.test.ts",
+    "typecheck": "tsc -p apps/mobile/tsconfig.json --noEmit && tsc -p apps/api/tsconfig.json --noEmit",
+    "mobile": "npm --workspace @beacon/mobile run start",
+    "api": "npm --workspace @beacon/api run dev",
+    "postinstall": "node scripts/fix-expo-paths.cjs",
+    "lint": "eslint apps packages tests scripts --max-warnings=0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.39.5",
+    "globals": "^16.5.0",
+    "tsx": "^4.20.6",
+    "typescript": "~5.9.2",
+    "typescript-eslint": "^8.71.2"
+  },
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "overrides": {
+    "react-native-svg": "15.12.1",
+    "@expo/metro-config": {
+      "postcss": "8.5.30"
+    }
+  }
+}

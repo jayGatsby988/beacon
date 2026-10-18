@@ -15,3 +15,10 @@ tmp/
 apps/mobile/ios/
 apps/mobile/android/
 docs/source/
+
+.tooling/
+**/.env
+**/.env.*
+!**/.env.example
+*.db
+*.sqlite
