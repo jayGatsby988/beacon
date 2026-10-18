@@ -39,6 +39,8 @@ npm --workspace @beacon/api run dev
 
 This is preparation only. **The user's no-spending instruction prohibits provisioning Vultr instances, Tiger services, domains, or any paid resource.** Execute only when the user later supplies an already-authorized host and explicitly requests deployment.
 
+The API image uses Node 24, matching the workspace engine requirement. Its install removes only the copied root manifest's mobile-only Expo postinstall hook; dependency install scripts still run. An isolated API/protocol workspace install using these steps passed on Node 24, followed by six API tests (one Timescale test skipped because no test database was supplied). This checks the package-install path, not the Linux container: Docker is unavailable on the current Mac, so a real image build and deployed HTTPS verification are still required.
+
 1. Prepare an existing Linux host with Docker Engine/Compose, security updates, a restricted SSH account, and firewall permitting 80/443 publicly; do not publish port 3000 or PostgreSQL. Point an existing domain A/AAAA record to that host. Restrict database access to the host's egress IP where supported.
 2. Copy the repository to the host. Copy `infra/vultr/.env.example` to `infra/vultr/.env`, fill secrets privately, and `chmod 600 infra/vultr/.env`. It must be excluded from Git and Docker build context.
 3. Build using `docker compose --env-file infra/vultr/.env -f infra/vultr/compose.yaml build`. Run migrations using `docker compose --env-file infra/vultr/.env -f infra/vultr/compose.yaml run --rm api npm --workspace @beacon/api run migrate` with migration credentials, then restore runtime credentials.

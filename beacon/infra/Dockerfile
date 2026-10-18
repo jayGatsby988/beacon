@@ -1,11 +1,15 @@
-FROM node:22-bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY packages/protocol/package.json packages/protocol/package.json
+# The root postinstall patches Expo for local iOS builds. It is not part of this
+# API-only image; remove just that hook while retaining dependency install scripts.
 # tsx is a pinned workspace root dev tool and is deliberately retained to execute TypeScript.
-RUN npm ci --include=dev --workspace @beacon/api --workspace @beacon/protocol --include-workspace-root && npm cache clean --force
+RUN npm pkg delete scripts.postinstall \
+    && npm ci --include=dev --workspace @beacon/api --workspace @beacon/protocol --include-workspace-root \
+    && npm cache clean --force
 COPY apps/api apps/api
 COPY packages/protocol packages/protocol
 COPY database database
