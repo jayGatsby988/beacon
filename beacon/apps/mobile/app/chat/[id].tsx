@@ -18,7 +18,6 @@ import { ArrowUp, Phone } from "lucide-react-native";
 import { useBeacon } from "../../src/services/BeaconContext";
 import {
   ErrorNotice,
-  Heading,
   TopBar,
   age,
   formatTime,
@@ -92,7 +91,7 @@ export default function Chat() {
         : "Bluetooth call";
   return (
     <SafeAreaView style={s.page} edges={["top", "left", "right"]}>
-      <TopBar back title="Message" />
+      <TopBar back title={name} />
       <KeyboardAvoidingView
         style={s.flex}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -100,7 +99,11 @@ export default function Chat() {
         <View style={s.header}>
           <View style={s.personRow}>
             <View style={s.personName}>
-              <Heading>{name}</Heading>
+              <Text style={shared.caption}>
+                {person
+                  ? person.connected ? "Connected nearby" : `Last seen ${age(person.lastSeenAt)}`
+                  : "Not in your current group"}
+              </Text>
             </View>
             <Pressable
               accessibilityRole="button"
@@ -117,19 +120,11 @@ export default function Chat() {
                 pressed && { opacity: 0.7 },
               ]}
             >
-              <Phone color={c.text} size={23} />
+              <Phone color={c.text} size={18} /><Text style={s.callLabel}>Call</Text>
             </Pressable>
           </View>
-          <Text style={shared.caption}>
-            {person
-              ? person.connected
-                ? "Connected"
-                : `Last seen ${age(person.lastSeenAt)}`
-              : "This person is not in your current group."}
-          </Text>
-          {(!b.callSupported || !person?.connected) && (
-            <Text style={s.callHint}>{callHint}</Text>
-          )}
+          {!person?.connected && person && <Text style={s.callHint}>Messages wait here until you reconnect.</Text>}
+          <Text style={s.callHint}>{b.callSupported ? (b.call ? callHint : "Bluetooth calls · experimental") : callHint}</Text>
         </View>
         <FlatList
           ref={list}
@@ -229,9 +224,9 @@ const s = StyleSheet.create({
   flex: { flex: 1 },
   header: {
     paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 18,
-    gap: 6,
+    paddingTop: 0,
+    paddingBottom: 12,
+    gap: 4,
     width: "100%",
     maxWidth: 680,
     alignSelf: "center",
@@ -239,8 +234,11 @@ const s = StyleSheet.create({
   personRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   personName: { flex: 1 },
   call: {
-    minWidth: 48,
-    minHeight: 48,
+    minWidth: 88,
+    minHeight: 44,
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 14,
     borderRadius: 24,
     backgroundColor: c.card,
     borderWidth: 1,
@@ -248,6 +246,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  callLabel: { fontFamily: fonts.medium, fontSize: 14, color: c.text },
   callHint: {
     fontFamily: fonts.body,
     fontSize: 12,

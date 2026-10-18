@@ -145,6 +145,16 @@ The [local Timescale validation record](LOCAL_TIMESCALE_VALIDATION.md) includes 
 
 The latest expanded-map Release build was also installed and launched successfully on the newly connected iPhone 17 Pro. Its running executable matched the new installation path. This confirms installation and startup, not paired map-pin or audio behavior.
 
+## Interface redesign — October 18, 2026
+
+Help now owns both the one-tap SOS action and incoming requests. Nearby opens People, with a separate Map view and one explicit location-sharing switch. Group forms, request delivery details, and advanced settings use progressive disclosure. Optional SOS drafts reset on audience changes. No transport or storage implementation changed in this update.
+
+The real local Timescale workspace run passed **162 tests with no failures or skips**, plus mobile/API TypeScript and ESLint. Three added real-Home rendering tests verify scoped incoming requests, detail navigation, duplicate-send suppression, and the explicit SOS action. The existing signed-presence/SQLite tests now separately render People and Map, verifying scope filtering, withdrawals, reconnects, and pin creation. These replace native UI primitives and are not hardware evidence. After the final audience-reset change, the three Home tests and typecheck passed again; lint passed after the final setup-link removal.
+
+The actual simulator walkthrough verified SOS send/cancel, People/Map switching, offline geometry and Locate with sharing off, group form cancellation, name-save visibility, and clearing SOS drafts after audience changes. No active QA request or draft remains. Larger text and software-keyboard overlap were not verified. See [the dated UI record and screenshots](SIMULATOR_UI_VALIDATION.md).
+
+The iOS Release build succeeded and its strict code signature passed. Its embedded JavaScript is newer than every checked UI/service/protocol asset source. All known physical phones were unavailable at build completion, so this redesign has not yet been installed on a physical phone. Artifact details and limitations are in [the redesign evidence](evidence/ui-redesign.json).
+
 ## Required before broader use
 
 - Run the [device acceptance checklist](DEVICE_ACCEPTANCE.md) on three phones, including Android/iPhone interoperability, disconnections, radio toggles, return acknowledgments, actual app restarts and expiry.

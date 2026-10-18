@@ -1,0 +1,65 @@
+{
+  "recordedAt": "2026-10-18T09:33:06.016750+00:00",
+  "scope": "UI navigation and layout redesign; native transport and persisted service behavior unchanged.",
+  "changes": [
+    "Help owns SOS and incoming requests; Nearby defaults to People with a separate Map view.",
+    "Audience changes reset optional SOS drafts.",
+    "Request offers use one acceptance action; technical status details are collapsed.",
+    "Groups use one form at a time; Settings exposes advanced controls progressively.",
+    "Location sharing remains explicit and has one control in the Map view."
+  ],
+  "validation": {
+    "workspaceTests": 162,
+    "passed": 162,
+    "failed": 0,
+    "skipped": 0,
+    "typecheck": true,
+    "lint": true,
+    "realLocalTimescaleHttp": true,
+    "postAudienceResetHelpTests": 3,
+    "iosReleaseBuild": true
+  },
+  "artifact": {
+    "recordedAt": "2026-10-18T09:32:40.567500+00:00",
+    "bundleId": "org.beacon.community.dev",
+    "bundleBytes": 11088140,
+    "bundleSha256": "062797ffc52a41329a673fae0464d706b7b0e580c015462eaffe36d64515d8fb",
+    "bundleTimeUtc": "2026-10-18T09:32:30.638600+00:00",
+    "checkedSourceFiles": 37,
+    "newerSources": [],
+    "profileExpirationUtc": "2026-10-25T05:51:22",
+    "provisionedDeviceCount": 3,
+    "strictSignatureVerified": true
+  },
+  "physicalInstallation": "Not performed: all known physical iPhones unavailable at build completion.",
+  "limitations": [
+    "Physical Bluetooth/audio and shared-peer map pins were not newly verified.",
+    "Previously documented native online Save my area failures remain unresolved.",
+    "Current development provisioning is temporary."
+  ],
+  "actualSimulator": {
+    "genuineApp": true,
+    "syntheticContactsInserted": false,
+    "sosCreateAndCancel": true,
+    "cancelPendingPropagationVisible": true,
+    "peopleIsDefault": true,
+    "peopleMapSwitch": true,
+    "bundledStreetsAndLocalGpsPin": true,
+    "locatePreservesSharingOff": true,
+    "groupJoinCreateCancel": true,
+    "physicalBluetoothDeliveryVerified": false,
+    "voiceAudioVerified": false,
+    "hostNetworkDisabled": false,
+    "screenshots": [
+      "docs/screenshots/redesign/help.png",
+      "docs/screenshots/redesign/nearby-people.png",
+      "docs/screenshots/redesign/nearby-map.png"
+    ],
+    "scopeNote": "Fresh production JavaScript on the existing compatible native simulator app; final setup footer-link removal happened after the simulator export. No later native behavior change.",
+    "audienceChangeClearsSosDraft": true,
+    "nameEditRevealsSaveAndRestoringHidesIt": true,
+    "noActiveQaRequestRemaining": true,
+    "softwareKeyboardVerified": false,
+    "largeDynamicTypeVerified": false
+  }
+}

@@ -1,6 +1,6 @@
 # Beacon interface
 
-Beacon is a quiet, high-contrast tool for asking nearby participants for help. The two primary destinations are **I need help** and **Help nearby**. Connection status, preparation, and history are secondary routes. Maps belong to the request they explain.
+Beacon is a quiet, high-contrast tool for asking nearby participants for help. The two primary destinations are **Help** and **Nearby**. Help contains the one-tap SOS action, the current request, and incoming assistance requests. Nearby opens a conversation list; its People / Map switch reveals the location view only when wanted. Connection diagnostics and history live under Settings → Advanced.
 
 ## Visual system
 
@@ -9,9 +9,9 @@ Beacon is a quiet, high-contrast tool for asking nearby participants for help. T
 - Action red `#D23A3A`; pending region `#2A1519` with `#C2393B` border and `#F07070` labels.
 - Small text on red uses pure white for contrast. Primary gray-white on this red is 4.37:1, below the 4.5:1 small-text threshold; pure white is above it. Large SOS text can use the primary text token.
 - Inter Tight Black headlines, locally bundled Inter body and controls, Barlow Condensed Bold wordmark. Fonts ship in the application; no runtime font CDN.
-- 24-point screen margins, 20-point card corners, 28–56-point vertical breathing room, and 48-point minimum controls.
+- 24-point screen margins, rounded gray surfaces, generous spacing between sections, and at least 44-point touch controls. A single page title replaces the previous brand-plus-title stack.
 - Native text scaling is enabled. Content scrolls instead of relying on fixed screen heights. Cards and fields grow with their text. No animation is required to understand status; navigation animation is disabled.
-- Completed and received evidence stays white. One grouped red focal element per screen: the SOS control, the pending request area, offer action, setup action, settings save action, or selected replay marker.
+- Completed and received evidence stays white. One grouped red focal element per screen: the SOS control, offer/accept action, setup action, message send action, or selected replay marker. Discovery and utility controls are neutral.
 
 The vector beacon mark remains neutral when a primary action is red. It is a small angular signal shape with a point of origin, and does not introduce color outside the palette.
 
@@ -34,7 +34,7 @@ Request details distinguish:
 
 A recipient receipt does not mean a human has read a request. A relay transfer does not imply recipient delivery. Cloud sync never changes these labels. Cancellation and completion disclose pending propagation when other devices may retain earlier state.
 
-The request map is delegated to `services/RequestMap.tsx`; coordinates, report source, accuracy and capture time remain visible outside it. There is no assumed physical distance from Bluetooth signal strength.
+The request map is delegated to `services/RequestMap.tsx`; capture time, accuracy and a Not live label remain visible. Raw coordinates expand on request. Offer notes, delivery details and cancellation options start collapsed; confirmations remain explicit. There is no assumed physical distance from Bluetooth signal strength.
 
 ## Secondary screens
 
@@ -42,7 +42,11 @@ The request map is delegated to `services/RequestMap.tsx`; coordinates, report s
 
 **History:** persisted local events are available offline. Combined incident events are explicitly separate. The replay controls step through actual recorded events, with a single red selected marker; missing and late-arriving events are acknowledged. Historical hop labels appear only when the event contains node evidence.
 
-**Settings:** local name, permission recovery, relay participation, map download and deletion, incident connection settings, manual synchronization entry, redacted export, and guarded history clearing. Secret fields clear after saving. Blank connection fields preserve existing configuration.
+**Settings:** local name, nearby participation, and phone permissions. The name-save action appears only after editing. Advanced expands connection details, request history, redacted diagnostics export, and guarded history clearing. Location sharing has one control in Nearby → Map.
+
+**Groups:** choose an audience from Help or Nearby. Join and Create reveal one form at a time, replacing the list until completed or canceled. Invite sharing is explicit.
+
+**Chat:** one person-name header, connection state, messages, and the composer. Delivery remains queued/received/expired. Calls retain an experimental label; this redesign does not establish functioning Bluetooth audio.
 
 ## Accessibility and verification
 

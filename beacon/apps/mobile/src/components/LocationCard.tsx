@@ -1,7 +1,10 @@
-import { Text, View } from "react-native";
+import { useState } from "react";
+import { Pressable, Text, View } from "react-native";
+import { ChevronDown, ChevronUp } from "lucide-react-native";
 import RequestMap from "../services/RequestMap";
 import type { LocationReport, MapState } from "../ui/types";
-import { Body, Card, formatReportTime, Label, styles } from "./ui";
+import { Body, Card, formatReportTime, styles } from "./ui";
+import { colors as c } from "../theme/tokens";
 
 export function LocationCard({
   location,
@@ -10,28 +13,18 @@ export function LocationCard({
   location: LocationReport;
   map: MapState;
 }) {
+  const [showCoordinates, setShowCoordinates] = useState(false);
   const hasCoordinates =
     location.latitude != null && location.longitude != null;
-  const coordinates = hasCoordinates
-    ? `${location.latitude!.toFixed(5)}, ${location.longitude!.toFixed(5)}`
-    : undefined;
   return (
     <Card style={{ padding: 0, overflow: "hidden", gap: 0 }}>
       <View style={{ padding: 16, gap: 6 }}>
-        <Label>Reported location</Label>
+        <Text style={styles.smallTitle}>Location</Text>
         {location.place ? (
           <Body>{location.place}</Body>
         ) : !hasCoordinates ? (
-          <Body muted>No location shared.</Body>
+          <Body muted>Not shared.</Body>
         ) : null}
-        {coordinates && (
-          <Text
-            selectable
-            style={[styles.body, { fontVariant: ["tabular-nums"] }]}
-          >
-            {coordinates}
-          </Text>
-        )}
         {location.source !== "unavailable" && (
           <Text style={styles.caption}>
             {formatReportTime(location.capturedAt)} · Not live
@@ -42,9 +35,44 @@ export function LocationCard({
         )}
       </View>
       {hasCoordinates && (
-        <View style={{ height: 200 }}>
-          <RequestMap location={location} map={map} />
-        </View>
+        <>
+          <View style={{ height: 200 }}>
+            <RequestMap location={location} map={map} />
+          </View>
+          <View style={{ paddingHorizontal: 16 }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: showCoordinates }}
+              onPress={() => setShowCoordinates((shown) => !shown)}
+              style={{
+                minHeight: 48,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+              }}
+            >
+              <Text style={styles.textButtonText}>Coordinates</Text>
+              {showCoordinates ? (
+                <ChevronUp color={c.secondary} size={20} />
+              ) : (
+                <ChevronDown color={c.secondary} size={20} />
+              )}
+            </Pressable>
+            {showCoordinates && (
+              <Text
+                selectable
+                style={[
+                  styles.body,
+                  { fontVariant: ["tabular-nums"], paddingBottom: 16 },
+                ]}
+              >
+                {location.latitude!.toFixed(5)},{" "}
+                {location.longitude!.toFixed(5)}
+              </Text>
+            )}
+          </View>
+        </>
       )}
     </Card>
   );
