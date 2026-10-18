@@ -2,6 +2,16 @@
 
 Implementation, automated checks, native compilation, and physical acceptance are separate evidence. This document does not infer radio delivery or rescue from a build passing.
 
+## Final recheck — October 17, 23:45 local
+
+The complete workspace passes **86 tests, zero failures, zero skips**, using real local PostgreSQL 18.6 / TimescaleDB 2.30.2. Mobile/API TypeScript and ESLint pass. Migrations and HTTP checks also pass, including signed upload deduplication, incident access controls, revoked credentials, replay, and late aggregate refresh. The isolated database was stopped and its temporary data and password file removed afterward. Sanitized output is in [the workspace evidence](evidence/local-timescale-workspace-check.txt) and [HTTP evidence](evidence/local-timescale-http.json).
+
+This audit found and fixed a message-ordering bug: an authenticated direct message arriving before presence could be saved and acknowledged without a visible conversation. The receiver now persists a neutral, scoped contact before generating its receipt. Three regressions verify visibility and unread state after reconnect/restart, later replacement by the sender's announced name, failure/retry when contact storage is unavailable, and no contact creation from an unsolicited receipt.
+
+Swift and Kotlin framing checks were repeated successfully: 28 round trips per language plus malformed, ordering, duplicate, size, capacity, timeout, and recovery cases. Ten signed/encrypted social payload variants, including maximum-size message text, fit the native framing limits. These checks do not substitute for a physical radio test.
+
+The simulator launched the final signed build's exact production JavaScript bundle using the existing compatible simulator native binary. Its empty conversation layout was inspected again with an explicitly synthetic contact before the final rebuild. Device Hub automation still could not enter multiline text, so a manual composer-send result is not claimed. The fixture was removed and its database passed `quick_check`; final Home and empty Nearby navigation were verified after installing the updated bundle. Physical installation and two-phone validation remain pending because the intended iPhone is unavailable. Final rebuilt binary details are recorded in [Nearby/groups evidence](NEARBY_GROUPS.md).
+
 ## Nearby and private groups update — October 17, 23:15 local
 
 The expanded suite passes **82 tests, zero failures, one database-dependent skip**. Mobile/API TypeScript and ESLint pass. Tests use real signed/encrypted protocol packets and disk-backed SQLite with explicitly synthetic radio links. New checks cover direct-message persistence, lost and forged acknowledgments, reconnect/restart, receipt-queue starvation, bounded traffic/cache limits, future-clock and late-arrival unread tracking, private group isolation, queued scope changes, and a complete private SOS offer/accept/assignment receipt flow. Optional GPS timeout no longer leaves an unrelated action error on Home.

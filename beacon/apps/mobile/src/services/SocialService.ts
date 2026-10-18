@@ -250,6 +250,24 @@ export class SocialService {
       const stored = { ...packet, wire: encodeDirect(packet) };
       await repository.savePacket(stored);
       if (!current()) return true;
+      const people = await repository.people();
+      if (!current()) return true;
+      if (
+        !people.some(
+          (person) => person.nodeId === packet.origin && person.scope === scope,
+        )
+      ) {
+        // Presence can be lost while the direct packet arrives. Keep its conversation reachable
+        // without inventing a human identity; a later signed presence supplies the display name.
+        await repository.savePerson({
+          nodeId: packet.origin,
+          publicKey: packet.publicKey,
+          name: `Beacon user ${packet.origin.slice(0, 8)}`,
+          scope,
+          lastSeenAt: this.now(),
+        });
+        if (!current()) return true;
+      }
       // A receipt means this phone persisted the message, not that its owner read it.
       const pending = await repository.packets();
       if (!current()) return true;

@@ -486,3 +486,109 @@ test("late delivery with an old signed timestamp is unread even after the chat w
   assert.equal(h.changes.at(-1)?.people[0]?.unreadCount, 0);
   assert.equal(h.readMarkers.size, 2);
 });
+
+test("direct-before-presence creates a durable visible contact; later presence supplies its name", async (t) => {
+  const h = fixture();
+  t.after(() => h.service.settle());
+  await h.service.connect("peer");
+  const packet = createDirectMessage(
+    h.remote,
+    h.local.publicKey,
+    "Arrived before presence",
+    null,
+    NOW,
+    randomBytes,
+  );
+  await h.service.receive("peer", encodeDirect(packet));
+  assert.equal(
+    h.repository.messages.size,
+    2,
+    "message is followed by a persisted receipt",
+  );
+  assert.equal(
+    h.changes.at(-1)?.people[0]?.name,
+    `Beacon user ${h.remote.nodeId.slice(0, 8)}`,
+  );
+  assert.equal(h.changes.at(-1)?.people[0]?.unreadCount, 1);
+  h.service.disconnect("peer");
+  await h.service.refresh();
+  await h.service.settle();
+  const restarted = new SocialService({
+    identity: h.local,
+    repository: h.repository as unknown as SocialRepository,
+    scope: () => null,
+    name: () => "Synthetic local",
+    random: randomBytes,
+    send: async () => {},
+    getRead: async (key) => h.readMarkers.get(key) ?? 0,
+    setRead: async (key, value) => {
+      h.readMarkers.set(key, value);
+    },
+    onChange: (people, messages) => h.changes.push({ people, messages }),
+    onError: (error) => h.errors.push(error),
+    clock: () => NOW,
+  });
+  t.after(() => restarted.settle());
+  await restarted.refresh();
+  assert.equal(h.changes.at(-1)?.people[0]?.connected, false);
+  assert.equal(h.changes.at(-1)?.people[0]?.unreadCount, 1);
+  assert.equal(h.changes.at(-1)?.messages[0]?.text, "Arrived before presence");
+  await restarted.connect("new-peer");
+  await restarted.receive("new-peer", h.presence());
+  assert.equal(h.changes.at(-1)?.people[0]?.name, "Synthetic remote");
+  await restarted.receive("new-peer", encodeDirect(packet));
+  assert.equal(
+    h.changes.at(-1)?.people[0]?.name,
+    "Synthetic remote",
+    "duplicate message must preserve the signed presence name",
+  );
+});
+
+test("contact persistence failure prevents receipt and retry makes the conversation reachable", async (t) => {
+  const h = fixture();
+  t.after(() => h.service.settle());
+  await h.service.connect("peer");
+  const packet = createDirectMessage(
+    h.remote,
+    h.local.publicKey,
+    "Contact storage must succeed",
+    null,
+    NOW,
+    randomBytes,
+  );
+  const original = h.repository.savePerson.bind(h.repository);
+  h.repository.savePerson = async () => {
+    throw new Error("Contact storage is full");
+  };
+  await assert.rejects(
+    h.service.receive("peer", encodeDirect(packet)),
+    /Contact storage is full/,
+  );
+  assert.equal(h.repository.messages.size, 1, "only incoming packet persisted");
+  assert.equal(
+    h.sent.some((p) => JSON.parse(p.wire).type === "direct"),
+    false,
+    "no receipt before contact persistence",
+  );
+  h.repository.savePerson = original;
+  await h.service.receive("peer", encodeDirect(packet));
+  assert.equal(h.repository.messages.size, 2);
+  assert.equal(h.changes.at(-1)?.people[0]?.unreadCount, 1);
+});
+
+test("an incoming receipt cannot create an unsolicited contact", async (t) => {
+  const h = fixture();
+  t.after(() => h.service.settle());
+  await h.service.connect("peer");
+  const receipt = createDirectReceipt(
+    h.remote,
+    h.local.publicKey,
+    createRequestId(h.local, randomBytes),
+    null,
+    NOW,
+    randomBytes,
+  );
+  await h.service.receive("peer", encodeDirect(receipt));
+  assert.equal(h.repository.contacts.length, 0);
+  assert.equal(h.repository.messages.size, 0);
+});
