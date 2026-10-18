@@ -11,7 +11,7 @@ import MapLibre, { type CameraRef } from "@maplibre/maplibre-react-native";
 import { Layers, LocateFixed, MapPin, MessageCircle, X } from "lucide-react-native";
 import { router } from "expo-router";
 import { LOCATION_LIMITS } from "@beacon/protocol";
-import type { LocationReport, MapState, RequestView } from "../ui/types";
+import type { LocationReport, MapState, PersonView, RequestView } from "../ui/types";
 import { colors as c, fonts } from "../theme/tokens";
 import { CAMPUS_BOUNDS, campusStyle } from "./campusMapStyle";
 
@@ -198,11 +198,15 @@ export default function NearbyMap({
   focusRevision,
   pins,
   requests = [],
+  nodeId,
+  activeGroupId = null,
+  people = [],
   internet,
   map,
   onLocate,
   onSaveArea,
   onCancelSave,
+  onOfferHelp,
   now,
   height,
 }: {
@@ -210,12 +214,16 @@ export default function NearbyMap({
   focusRevision: number;
   pins: NearbyPin[];
   requests?: RequestView[];
+  nodeId?: string;
+  activeGroupId?: string | null;
+  people?: PersonView[];
   connectedCount: number;
   internet: boolean | null;
   map: MapState;
   onLocate: () => Promise<LocationReport>;
   onSaveArea?: () => Promise<void>;
   onCancelSave?: () => Promise<void>;
+  onOfferHelp?: (requestId: string) => Promise<void>;
   now: number;
   height: number;
 }) {
@@ -231,6 +239,9 @@ export default function NearbyMap({
   const [viewCenter, setViewCenter] = useState<number[]>(CAMPUS_CENTER);
   const [selectedId, setSelectedId] = useState<string>();
   const [selectedRequestId, setSelectedRequestId] = useState<string>();
+  const [offering, setOffering] = useState(false);
+  const [offerError, setOfferError] = useState<{ requestId: string; message: string }>();
+  const offerPending = useRef(false);
   const [showMapOptions, setShowMapOptions] = useState(false);
   const centered = useRef(false);
   const fittedPeers = useRef(false);
@@ -263,6 +274,7 @@ export default function NearbyMap({
   const selected = validPins.find((pin) => pin.nodeId === selectedId);
   // SOS coordinates are the location attached to a request, never a live peer fix.
   const requestPins = requests.filter((request) =>
+    (request.groupId ?? null) === activeGroupId &&
     (request.status === "active" || request.status === "accepted") &&
     request.location.source !== "unavailable" &&
     Number.isFinite(request.location.latitude) &&
@@ -271,6 +283,36 @@ export default function NearbyMap({
     Math.abs(request.location.longitude!) <= 180,
   );
   const selectedRequest = requestPins.find((request) => request.id === selectedRequestId);
+  const myOffer = selectedRequest?.offers.find((offer) => offer.nodeId === nodeId);
+  const acceptedOffer = selectedRequest?.offers.find((offer) => offer.id === selectedRequest.acceptedOfferId);
+  const canOffer = !!onOfferHelp && !!nodeId && !!selectedRequest &&
+    !selectedRequest.mine && selectedRequest.status === "active" &&
+    !selectedRequest.acceptedOfferId && !myOffer;
+  const chatNodeId = selectedRequest?.status === "accepted" && acceptedOffer
+    ? selectedRequest.mine
+      ? acceptedOffer.nodeId
+      : acceptedOffer.nodeId === nodeId
+        ? selectedRequest.originNodeId
+        : undefined
+    : undefined;
+  const chatPerson = chatNodeId && chatNodeId !== nodeId
+    ? people.find((person) => person.nodeId === chatNodeId && person.scope === activeGroupId)
+    : undefined;
+  const offerHelp = async () => {
+    if (!canOffer || !selectedRequest || !onOfferHelp || offerPending.current) return;
+    const requestId = selectedRequest.id;
+    offerPending.current = true;
+    setOffering(true);
+    setOfferError(undefined);
+    try {
+      await onOfferHelp(requestId);
+    } catch (error) {
+      setOfferError({ requestId, message: error instanceof Error ? error.message : "Could not offer help. Try again." });
+    } finally {
+      offerPending.current = false;
+      setOffering(false);
+    }
+  };
   const coordinates = [
     ...(own ? [[own.longitude, own.latitude]] : []),
     ...validPins.map((pin) => [pin.location.longitude, pin.location.latitude]),
@@ -538,9 +580,39 @@ export default function NearbyMap({
               <X color={c.secondary} size={20} />
             </Pressable>
           </View>
-          <Pressable accessibilityRole="button" onPress={() => router.push(`/request/${selectedRequest.id}`)} style={({ pressed }) => [s.message, pressed && s.pressed]}>
-            <Text style={s.messageText}>Open request</Text>
-          </Pressable>
+          {canOffer ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Offer help to ${selectedRequest.name}`}
+              accessibilityState={{ busy: offering, disabled: offering }}
+              disabled={offering}
+              onPress={() => void offerHelp()}
+              style={({ pressed }) => [s.message, offering && s.disabled, pressed && s.pressed]}
+            >
+              {offering && <ActivityIndicator color={c.background} />}
+              <Text style={s.messageText}>{offering ? "Sending offer…" : "Offer help"}</Text>
+            </Pressable>
+          ) : chatPerson ? (
+            <Pressable accessibilityRole="button" accessibilityLabel={`Message ${chatPerson.name}`} onPress={() => router.push(`/chat/${chatPerson.nodeId}`)} style={({ pressed }) => [s.message, pressed && s.pressed]}>
+              <MessageCircle color={c.background} size={19} />
+              <Text style={s.messageText}>Message</Text>
+            </Pressable>
+          ) : selectedRequest.mine ? (
+            <Pressable accessibilityRole="button" onPress={() => router.push("/(tabs)")} style={({ pressed }) => [s.message, pressed && s.pressed]}>
+              <Text style={s.messageText}>View on Help</Text>
+            </Pressable>
+          ) : (
+            <Text style={s.caption}>
+              {chatNodeId
+                ? "Reconnect with the requester to message."
+                : selectedRequest.status === "accepted"
+                  ? "Help accepted"
+                  : myOffer
+                    ? "Offer saved · awaiting acceptance"
+                    : "View this request on Help."}
+            </Text>
+          )}
+          {offerError?.requestId === selectedRequest.id && <Text accessibilityLiveRegion="polite" style={s.caption}>{offerError.message}</Text>}
         </View>
       )}
       {selected && (

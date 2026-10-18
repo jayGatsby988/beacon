@@ -255,6 +255,9 @@ export default function Nearby() {
             ownLocation={b.location}
             focusRevision={mapFocusRevision}
             pins={pins}
+            nodeId={b.nodeId}
+            activeGroupId={b.activeGroupId}
+            people={people}
             requests={b.requests.filter((request) =>
               (request.groupId ?? null) === b.activeGroupId &&
               (request.status === "active" || request.status === "accepted"),
@@ -265,6 +268,7 @@ export default function Nearby() {
             onLocate={b.locateOnMap}
             onSaveArea={b.downloadMap}
             onCancelSave={b.cancelMapDownload}
+            onOfferHelp={b.offerHelp}
             now={now}
             height={Math.max(200, Math.min(280, height * 0.26))}
           />

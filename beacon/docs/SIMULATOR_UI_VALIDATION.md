@@ -216,3 +216,16 @@ Current production JavaScript/assets were exported into compatible existing simu
 Screenshots: [Home](screenshots/light-layout/home.png), [large-text Home](screenshots/light-layout/home-large-text.png), [request](screenshots/light-layout/request.png), [Nearby](screenshots/light-layout/nearby.png), [Map](screenshots/light-layout/map.png). Machine-readable results: [light-layout.json](evidence/light-layout.json).
 
 At 07:16:30–07:18:31 the final map stayed open with sharing off for over 120 seconds; its You pin remained visible with a fresh 10-second age. Save my area → Cancel save returned to the idle save action with bundled geometry retained. Explicit View online rendered street/building geometry and labels. These are simulator observations; no peer locations were injected.
+
+
+## Inline SOS workflow and performance — October 18, approximately 08:30–08:45
+
+Unchanged background request refreshes retain their existing store snapshot; verified envelope content and derived request states reuse bounded cached work. In a real BeaconService/SQLite host workload of 40 signed synthetic SOS envelopes and ten unchanged refreshes, repeated signature checks dropped from 800 to zero and subscriber notifications from ten to zero; elapsed time dropped from 810.2 ms to 13.9 ms (18.8 ms under concurrent test load). This is host workload evidence, not physical-device frame-rate evidence. Map age ticks no longer rebuild the native map subtree, with exact position-expiry boundaries and stable request camera inputs retained. Validation: [performance evidence](evidence/performance.json).
+
+The separate SOS details interface was removed at the user's request. Actual simulator interaction saved a request labeled **SIMULATOR QA - no emergency** and remained on Help with its header, tabs, status, optional reported location and End SOS action. End SOS → I no longer need help completed the request and returned to the send controls, keeping pending propagation visible. The final compact pending-update caption was observed after repackaging; no active synthetic request remains. The map rendered bundled UW geometry and a fresh simulated location with sharing off. No contacts or radio receipts were fabricated.
+
+Final automated results: **206 passing tests, zero failures, one database integration skip**; TypeScript and ESLint passed. Sixteen Help action tests were rerun successfully after shortening the completion notice. Tests cover direct offers, named acceptance, completion/cancellation choices, scoped messaging, truthful receipt/confirmation states, legacy redirects, map-action eligibility and duplicate presses.
+
+Production JavaScript/assets were packaged into existing compatible native binaries; device/simulator signatures verified. The final app installed on Vaibhav's iPhone. A fresh launch initially returned an iOS developer-verification error; the local profile was valid, included the phone and matched the app. The user subsequently confirmed **Beacon opens**. No fresh paired physical radio/audio test or device FPS measurement is claimed. New-area map provider errors remain unresolved.
+
+Screenshots: [active SOS on Home](screenshots/inline-sos/active.png), [Home after completion](screenshots/inline-sos/home.png). Machine-readable record: [inline-sos.json](evidence/inline-sos.json).

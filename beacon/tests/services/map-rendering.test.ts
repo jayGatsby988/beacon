@@ -7,12 +7,14 @@ import * as jsx from "react/jsx-runtime";
 import ts from "typescript";
 import { LOCATION_LIMITS } from "../../packages/protocol/src/index.js";
 import { CAMPUS_BOUNDS, campusStyle } from "../../apps/mobile/src/components/campusMapStyle.js";
+import type { HelpOffer, PersonView, RequestView } from "../../apps/mobile/src/ui/types.js";
 
 // Execute the real components with persistent hook state and inspect the native
 // boundary props. This checks JS reconciliation/camera inputs, not device FPS.
 function harness() {
   type Slot = { value?: any; dependencies?: unknown[]; cleanup?: () => void };
   const slots: Slot[] = [];
+  const routes: string[] = [];
   let cursor = 0;
   let effects: (() => void)[] = [];
   const slot = () => slots[cursor++] ?? (slots[cursor - 1] = {});
@@ -54,13 +56,14 @@ function harness() {
     };
     if (name === "@maplibre/maplibre-react-native") return { __esModule: true, default: { MapView: "MapView", Camera: "Camera", PointAnnotation: "PointAnnotation", ShapeSource: "ShapeSource", CircleLayer: "CircleLayer" } };
     if (name === "lucide-react-native") return new Proxy({}, { get: (_target, key) => String(key) });
-    if (name === "expo-router") return { router: { push: () => {} } };
+    if (name === "expo-router") return { router: { push: (route: string) => { routes.push(route); } } };
     if (name === "@beacon/protocol") return { LOCATION_LIMITS };
     if (name.endsWith("/theme/tokens")) return { colors: {}, fonts: {} };
     if (name.endsWith("/campusMapStyle")) return { CAMPUS_BOUNDS, campusStyle };
     throw new Error(`Unexpected map dependency: ${name}`);
   };
   return {
+    routes,
     load: (relative: string) => {
       const source = readFileSync(new URL(relative, import.meta.url), "utf8");
       const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
@@ -95,6 +98,36 @@ const props = () => ({
   map: { status: "ready", progress: 1, bundled: true },
   onLocate: async () => location, now: at, height: 220,
 });
+const offer = (overrides: Partial<HelpOffer> = {}): HelpOffer => ({
+  id: "offer", nodeId: "helper", name: "Helper", createdAt: at,
+  accepted: false, assignmentReceived: false, ...overrides,
+});
+const request = (overrides: Partial<RequestView> = {}): RequestView => ({
+  id: "sos", originNodeId: "requester", name: "Requester", mine: false,
+  groupId: "group", category: "other", createdAt: at, updatedAt: at,
+  location: { ...location, source: "device" }, status: "active", transport: "received",
+  recipientCount: 1, forwardedCount: 0, seenCount: 0, offers: [], pendingUpdate: false,
+  ...overrides,
+});
+const person = (nodeId: string, scope = "group"): PersonView => ({
+  nodeId, scope, publicKey: `key-${nodeId}`, name: nodeId,
+  connected: true, lastSeenAt: at, unreadCount: 0,
+});
+function content(tree: any): string {
+  if (typeof tree === "string" || typeof tree === "number") return String(tree);
+  return React.Children.toArray(tree?.props?.children).map(content).join("");
+}
+const button = (tree: any, label: string) => find(tree, (node) =>
+  node.type === "Pressable" && (node.props.accessibilityLabel === label || content(node) === label),
+);
+function requestPreview(requests: RequestView[], options: Record<string, unknown> = {}) {
+  const h = harness();
+  const NearbyMap = h.load("../../apps/mobile/src/components/NearbyMap.tsx").default;
+  const input = { ...props(), requests, nodeId: "self", activeGroupId: "group", ...options };
+  const render = () => h.render(NearbyMap, input);
+  surface(render()).props.onSelect("request", `request-${requests[0].id}`);
+  return { ...h, render };
+}
 
 test("map age ticks, unchanged GPS reports, download progress and pans do not redraw the native map surface", () => {
   const h = harness();
@@ -171,4 +204,87 @@ test("request camera and point source stay stable across unrelated map/request u
   const moved = h.render(RequestMap, { location: { ...location, longitude: -122.307 }, map: props().map });
   assert.notEqual(camera(first), camera(moved));
   assert.notEqual(shape(first), shape(moved));
+});
+
+test("map offers help inline only for an eligible incoming request in the active audience", async () => {
+  const offered: string[] = [];
+  const onOfferHelp = async (requestId: string) => { offered.push(requestId); };
+  const h = requestPreview([request()], { onOfferHelp });
+  const action = button(h.render(), "Offer help to Requester");
+  assert.ok(action, "an active incoming request can be answered from its map pin");
+  action.props.onPress();
+  await Promise.resolve();
+  assert.deepEqual(offered, ["sos"]);
+  assert.deepEqual(h.routes, [], "offering does not leave the map");
+
+  const ineligible: [string, RequestView][] = [
+    ["own request", request({ mine: true, originNodeId: "self" })],
+    ["existing offer", request({ offers: [offer({ nodeId: "self" })] })],
+    ["accepted assignment", request({ acceptedOfferId: "offer", offers: [offer()] })],
+    ["accepted request", request({ status: "accepted" })],
+    ["closed request", request({ status: "completed" })],
+    ["other private audience", request({ groupId: "other-group" })],
+    ["public request while a group is selected", request({ groupId: null })],
+  ];
+  for (const [reason, item] of ineligible) {
+    const blocked = requestPreview([item], { onOfferHelp });
+    const tree = blocked.render();
+    assert.equal(button(tree, "Offer help to Requester"), undefined, reason);
+    if (item.groupId !== "group" || item.status === "completed") {
+      assert.equal(surface(tree).props.markers.some((marker: any) => marker.kind === "request"), false, `${reason} must not expose a map pin`);
+    }
+  }
+  assert.deepEqual(offered, ["sos"]);
+});
+
+test("map blocks repeated offer taps while saving and releases the action after failure", async () => {
+  let rejectOffer!: (error: Error) => void;
+  let calls = 0;
+  const pending = new Promise<void>((_resolve, reject) => { rejectOffer = reject; });
+  const h = requestPreview([request()], { onOfferHelp: () => { calls++; return pending; } });
+  const action = button(h.render(), "Offer help to Requester");
+  action.props.onPress();
+  action.props.onPress();
+  assert.equal(calls, 1, "the ref guard also blocks a tap before React renders the busy state");
+  const busy = button(h.render(), "Offer help to Requester");
+  assert.equal(busy.props.disabled, true);
+  assert.equal(busy.props.accessibilityState.busy, true);
+  rejectOffer(new Error("Disconnected"));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const failed = h.render();
+  assert.equal(button(failed, "Offer help to Requester").props.disabled, false);
+  assert.ok(find(failed, (node) => node.props?.accessibilityLiveRegion === "polite" && /Could not offer help|Disconnected/.test(content(node))), "a failed offer is visible and can be retried");
+  assert.deepEqual(h.routes, []);
+});
+
+test("map messages only the accepted participant with a known contact in the request audience", () => {
+  const cases = [
+    { label: "requester", mine: true, helper: "helper", contact: "helper" },
+    { label: "accepted helper", mine: false, helper: "self", contact: "requester" },
+  ];
+  for (const item of cases) {
+    const accepted = request({ mine: item.mine, status: "accepted", acceptedOfferId: "offer", offers: [offer({ nodeId: item.helper, accepted: true })] });
+    const h = requestPreview([accepted], { people: [person(item.contact)] });
+    const message = button(h.render(), `Message ${item.contact}`);
+    assert.ok(message, `${item.label} can message the other accepted participant`);
+    message.props.onPress();
+    assert.deepEqual(h.routes, [`/chat/${item.contact}`]);
+
+    for (const people of [[], [person(item.contact, "other-group")]]) {
+      const blocked = requestPreview([accepted], { people });
+      assert.equal(button(blocked.render(), `Message ${item.contact}`), undefined, "missing or differently scoped contacts cannot be opened");
+      assert.deepEqual(blocked.routes, []);
+    }
+  }
+  const bystander = requestPreview([request({ status: "accepted", acceptedOfferId: "offer", offers: [offer({ accepted: true })] })], { people: [person("requester"), person("helper")] });
+  assert.equal(button(bystander.render(), "Message"), undefined, "another volunteer cannot use an accepted participant's action");
+  assert.deepEqual(bystander.routes, []);
+});
+
+test("an own SOS map preview opens the Help tab without a separate details route", () => {
+  const h = requestPreview([request({ mine: true, originNodeId: "self" })]);
+  const action = button(h.render(), "View on Help");
+  assert.ok(action);
+  action.props.onPress();
+  assert.deepEqual(h.routes, ["/(tabs)"]);
 });
