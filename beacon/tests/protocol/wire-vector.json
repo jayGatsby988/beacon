@@ -1,0 +1,31 @@
+{
+  "description": "Synthetic public test key; NEVER use in production",
+  "privateKey": "0707070707070707070707070707070707070707070707070707070707070707",
+  "packet": {
+    "envelope": {
+      "version": 1,
+      "id": "bce599d66116a716ea3ade6d11cfd5d3f261bd585923bf3c05bc7df88a6097ad",
+      "origin": "fe812c12f3ab4ce6ac5db69ac352f906cb1b11ef43fb33e252ef7ff552263889",
+      "publicKey": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+      "nonce": "07070707070707070707070707070707",
+      "destination": "community",
+      "createdAt": 1800000000000,
+      "expiresAt": 1800021600000,
+      "hopLimit": 8,
+      "requestId": "fe812c12f3ab4ce6ac5db69ac352f90607070707070707070707070707070707",
+      "revision": 0,
+      "type": "sos",
+      "payload": {
+        "category": "other",
+        "note": "Synthetic interoperability vector",
+        "displayName": "Vector",
+        "location": {
+          "source": "unavailable",
+          "capturedAt": 1800000000000
+        }
+      },
+      "signature": "f895ebbf5d9527a5a1105a6e92f491f0b4f4c4a41a89fc519adc56f216ccc220f0c6eaaf5af994d2d6e263248d6c2d64a47c656ffa1eeeae2270fc4ae6025b02"
+    },
+    "hops": 1
+  }
+}
