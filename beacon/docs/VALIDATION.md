@@ -51,6 +51,20 @@ The rebuilt simulator then completed a real one-tap SOS interaction, showing sav
 
 Local history then showed the SOS and cancellation events with two pending uploads and Never synced. Replay selected the first event, and back navigation returned to Home with Send SOS available again. See the [simulator UI record and screenshot](SIMULATOR_UI_VALIDATION.md).
 
+## Physical reception investigation, October 17 at 22:15 Pacific
+
+A read-only snapshot of the connected iPhone's application database passed SQLite `quick_check`. It contained a foreign signed SOS, durably received at 21:50:45 Pacific with one radio hop. Actual protocol derivation returned it as open, unexpired, and belonging to a different origin from the locally created SOS. It therefore qualifies for the Help nearby list. A separate local SOS had been canceled. Recorded events showed five connected link sessions, four disconnections, and nine forwards; link sessions are not a count of distinct physical phones.
+
+This is evidence of at least one actual phone-to-phone reception. It does not establish that the user's latest attempted SOS arrived, how quickly an available route delivered it, three-phone relaying, or successful return acknowledgments. No seen, offer, or receipt message existed in this snapshot. The app sends a receipt on the explicit seen/offer action; forwarding alone is not a human response. The receiver's screen was not visually inspected during this investigation.
+
+Review found a separate startup resilience defect: optional map, location-permission, and network-status queries could delay or prevent the radio from starting. Those probes now run without blocking BLE. Four actual-service regressions cover stalled probes, optional failures, foreign native-data ingestion into a request view, and disposal. The workspace passed 53 tests with one explicit real-database skip; TypeScript, ESLint, Swift typechecking, and native framing regressions passed. This run did not restart the local Timescale database.
+
+The Help nearby tab now shows the number of active incoming requests in a white badge. Native Bluetooth diagnostics report operational stages and error codes without message contents. Neither change is claimed as a proven fix for the user's reported latest delivery attempt. Android and simulator artifacts from the earlier build do not yet contain these follow-up changes.
+
+A second read-only snapshot at 22:18 showed a newer remote SOS and a remote cancellation received at 22:15. The newer request had been created about eleven minutes before reception; this interval includes unknown time without an available connection, so it is not a measured connected-radio latency. No seen/offer/receipt was present.
+
+The follow-up iPhone build passed Xcode compilation and code-signature verification, installed on the connected iPhone 17 Pro, and launched at 22:18:37 with the Help nearby URL. Its attached native console confirmed powered-on central/peripheral managers, successful service publication and advertising, peer discovery, both connection roles becoming ready by 22:18:40, and multiple fully reassembled received packets from 22:18:40 onward. This provides direct radio/session evidence; the other phone's screen and a complete offer/accept/return-receipt loop remain unverified.
+
 ## Cloud and cost
 
 No Vultr/Tiger Data cloud resources, paid build service, public release, or hosted CI run were created. Local PostgreSQL/Timescale test tooling is free; its isolated test daemon was stopped after validation. Real Express HTTP checks passed readiness, signed uploads, retry deduplication, observer spoof rejection, incident authorization, replay/summary, token revocation, and a 30-day-late aggregate refresh. Hosted CI is manual-only to avoid automatic private-runner usage. Local BLE operation does not require cloud credentials.

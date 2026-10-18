@@ -73,6 +73,7 @@ export class BeaconService {
   private actionCount = 0;
   private resumePromise?: Promise<void>;
   private locationPromise?: Promise<void>;
+  private networkProbe?: Promise<void>;
   private actions = Promise.resolve();
   private appActive = true;
   private deviceSubscriptions: { remove(): void }[] = [];
@@ -239,7 +240,12 @@ export class BeaconService {
         () => this.state.location,
         (map) => this.update({ map }),
       );
-      await this.maps.initialize();
+      // Optional offline-map metadata must never prevent the radio from starting.
+      void this.maps.initialize().catch((error) => {
+        this.update({
+          map: { ...this.state.map, status: "error", error: safeError(error) },
+        });
+      });
       if (this.disposed) return;
       this.update({
         nodeId: this.identity.nodeId,
@@ -275,8 +281,6 @@ export class BeaconService {
           }),
         ),
       );
-      const permission = await Location.getForegroundPermissionsAsync();
-      this.update({ locationPermission: permission.status });
       await this.resume();
       if (this.disposed) return;
       this.timer = setInterval(() => {
@@ -305,10 +309,22 @@ export class BeaconService {
   private async resumeOnce() {
     // Refresh optional coordinates after permission/settings changes without blocking SOS.
     void this.refreshLocation().catch(this.error);
-    const network = await Network.getNetworkStateAsync();
-    this.update({
-      internet: network.isInternetReachable ?? network.isConnected ?? null,
-    });
+    // Connectivity inspection is presentation-only. A stalled OS query cannot gate offline BLE.
+    if (!this.networkProbe) {
+      this.networkProbe = Network.getNetworkStateAsync()
+        .then((network) => {
+          this.update({
+            internet: network.isInternetReachable ?? network.isConnected ?? null,
+          });
+        })
+        .catch(() => {
+          // Unknown reachability is distinct from offline; mesh remains independently usable.
+          this.update({ internet: null });
+        })
+        .finally(() => {
+          this.networkProbe = undefined;
+        });
+    }
     if (
       !this.disposed &&
       this.state.setupComplete &&

@@ -56,8 +56,13 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
     return ["state": name, "advertising": peripheralManager.isAdvertising, "scanning": centralManager.isScanning]
   }
   private func stateEvent() { emit("onState", state()) }
+  private func trace(_ stage: String) {
+    // Operational stages only: never log message contents, location, or node identity.
+    NSLog("[BeaconBLE] %@", stage)
+  }
   private func error(_ code: String, _ message: String, _ peer: String? = nil) {
-    var body: [String: Any] = ["code": code, "message": message]; if let peer { body["peerId"] = peer }; emit("onError", body)
+    trace("error \(code): \(message)")
+    var body: [String: Any] = ["code": code, "message": "\(code): \(message)"]; if let peer { body["peerId"] = peer }; emit("onError", body)
   }
   func start(service value: String?, promise: Promise) {
     if let value, UUID(uuidString: value) == nil { promise.reject("INVALID_UUID", "Invalid service UUID"); return }
@@ -68,12 +73,14 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
     centralManager = CBCentralManager(delegate: self, queue: .main)
     peripheralManager = CBPeripheralManager(delegate: self, queue: .main)
     wanted = true
+    trace("start requested")
     timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.tick() }
     activate(); promise.resolve(state())
   }
   private func activate() {
     guard wanted else { return }
     if centralManager.state == .poweredOn && !centralManager.isScanning {
+      trace("starting filtered scan")
       centralManager.scanForPeripherals(withServices: [service], options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
     }
     if peripheralManager.state == .poweredOn && !serviceReady {
@@ -81,15 +88,18 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
       let s = CBMutableService(type: service, primary: true)
       let w = CBMutableCharacteristic(type: writeId, properties: [.write], value: nil, permissions: [.writeable])
       let n = CBMutableCharacteristic(type: notifyId, properties: [.notify], value: nil, permissions: [])
+      trace("publishing service")
       notifyChar = n; s.characteristics = [w, n]; publishedService = s; peripheralManager.add(s)
     }
     if peripheralManager.state == .poweredOn && serviceReady && publishedService == nil && !peripheralManager.isAdvertising && !advertisingPending {
       advertisingPending = true
+      trace("starting advertising")
       peripheralManager.startAdvertising([CBAdvertisementDataServiceUUIDsKey: [service]])
     }
     stateEvent()
   }
   func stop() {
+    trace("stop requested")
     wanted = false; timer?.invalidate(); timer = nil
     centralManager.stopScan(); peripheralManager.stopAdvertising(); peripheralManager.removeAllServices(); serviceReady = false; publishedService = nil; advertisingPending = false
     for link in Array(outgoing.values) { if let p = link.peripheral { centralManager.cancelPeripheralConnection(p); p.delegate = nil }; drop(link, "STOPPED") }
@@ -101,8 +111,8 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
     link.queue.removeAll(); link.ready = false
     emit("onPeer", ["peerId": link.id, "state": "disconnected"])
   }
-  private func close(_ link: BeaconLink, _ code: String, disconnected: Bool = false) {
-    error(code, "BLE session failed", link.id)
+  private func close(_ link: BeaconLink, _ code: String, disconnected: Bool = false, cause: Error? = nil) {
+    error(code, cause?.localizedDescription ?? "BLE session failed; reconnecting", link.id)
     if let p = link.peripheral {
       outgoing.removeValue(forKey: p.identifier); p.delegate = nil
       if !disconnected {
@@ -139,6 +149,7 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
     guard let link = (Array(outgoing.values) + Array(incoming.values)).first(where: { $0.id == peer && $0.ready }) else { promise.reject("NOT_CONNECTED", "Peer is not connected"); return }
     guard link.queue.count < 8 else { promise.reject("QUEUE_FULL", "Peer send queue is full"); return }
     let limit = link.peripheral?.maximumWriteValueLength(for: .withResponse) ?? link.central?.maximumUpdateValueLength ?? 20
+    trace("queue message bytes=\(data.count) role=\(link.peripheral == nil ? "peripheral" : "central")")
     do { sequence &+= 1; link.queue.append(BeaconSend(try BeaconFrame.encode(data, id: sequence, limit: limit), promise)); pump(link) }
     catch { promise.reject("FRAME_ERROR", "Could not frame message") }
   }
@@ -156,73 +167,83 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
     }
   }
   private func receive(_ data: Data, link: BeaconLink) -> Bool {
-    do { if let complete = try link.rx.accept(data) { emit("onData", ["peerId": link.id, "base64": complete.base64EncodedString()]) }; return true }
+    do { if let complete = try link.rx.accept(data) { trace("received complete message bytes=\(complete.count)"); emit("onData", ["peerId": link.id, "base64": complete.base64EncodedString()]) }; return true }
     catch { self.error("INVALID_FRAME", "Malformed or excessive BLE frame", link.id); return false }
   }
   func centralManagerDidUpdateState(_ central: CBCentralManager) {
     guard central === centralManager else { return }
+    trace("central state=\(central.state.rawValue)")
     if central.state != .poweredOn {
       for link in outgoing.values { drop(link, "RADIO_UNAVAILABLE") }; outgoing.removeAll(); retiring.removeAll()
     }; activate(); stateEvent()
   }
   func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
     guard peripheral === peripheralManager else { return }
+    trace("peripheral state=\(peripheral.state.rawValue)")
     if peripheral.state != .poweredOn { serviceReady = false; publishedService = nil; advertisingPending = false; for link in incoming.values { drop(link, "RADIO_UNAVAILABLE") }; incoming.removeAll() }
     activate(); stateEvent()
   }
   func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
     guard central === centralManager, wanted, outgoing[peripheral.identifier] == nil, retiring[peripheral.identifier] == nil, outgoing.count < 4, (cooldown[peripheral.identifier]?.0 ?? 0) <= ProcessInfo.processInfo.systemUptime else { return }
+    trace("discovered matching peer rssi=\(RSSI.intValue)")
     let link = BeaconLink("c:\(peripheral.identifier.uuidString):\(UUID().uuidString)"); link.peripheral = peripheral; outgoing[peripheral.identifier] = link
     emit("onPeer", ["peerId": link.id, "state": "discovered", "rssi": RSSI.intValue]); peripheral.delegate = self; central.connect(peripheral)
   }
-  func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) { guard central === centralManager, wanted, outgoing[peripheral.identifier]?.peripheral === peripheral else { central.cancelPeripheralConnection(peripheral); return }; peripheral.discoverServices([service]) }
+  func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) { guard central === centralManager, wanted, outgoing[peripheral.identifier]?.peripheral === peripheral else { central.cancelPeripheralConnection(peripheral); return }; trace("connected; discovering service"); peripheral.discoverServices([service]) }
   func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
     guard central === centralManager, wanted else { return }
     if retiring[peripheral.identifier]?.0 === peripheral { retiring.removeValue(forKey: peripheral.identifier); return }
-    if let link = outgoing[peripheral.identifier], link.peripheral === peripheral { close(link, "CONNECT_FAILED", disconnected: true) }
+    if let link = outgoing[peripheral.identifier], link.peripheral === peripheral { close(link, "CONNECT_FAILED", disconnected: true, cause: error) }
   }
   func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
     guard central === centralManager, wanted else { return }
     if retiring[peripheral.identifier]?.0 === peripheral { retiring.removeValue(forKey: peripheral.identifier); return }
-    if let link = outgoing[peripheral.identifier], link.peripheral === peripheral { close(link, "DISCONNECTED", disconnected: true) }
+    if let link = outgoing[peripheral.identifier], link.peripheral === peripheral { close(link, "DISCONNECTED", disconnected: true, cause: error) }
   }
   func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
     guard wanted, let link = outgoing[peripheral.identifier], link.peripheral === peripheral else { return }
-    guard error == nil, let s = peripheral.services?.first(where: { $0.uuid == service }) else { close(link, "SERVICE_MISSING"); return }
+    guard error == nil, let s = peripheral.services?.first(where: { $0.uuid == service }) else { close(link, "SERVICE_MISSING", cause: error); return }
+    trace("service discovered; discovering characteristics")
     peripheral.discoverCharacteristics([writeId, notifyId], for: s)
   }
   func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
     guard wanted, let link = outgoing[peripheral.identifier], link.peripheral === peripheral else { return }
     link.write = service.characteristics?.first { $0.uuid == writeId }; link.notify = service.characteristics?.first { $0.uuid == notifyId }
-    guard error == nil, link.write?.properties.contains(.write) == true, let n = link.notify, n.properties.contains(.notify) else { close(link, "CHARACTERISTICS_MISSING"); return }
+    guard error == nil, link.write?.properties.contains(.write) == true, let n = link.notify, n.properties.contains(.notify) else { close(link, "CHARACTERISTICS_MISSING", cause: error); return }
+    trace("characteristics discovered; enabling notifications")
     peripheral.setNotifyValue(true, for: n)
   }
   func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
     guard wanted, let link = outgoing[peripheral.identifier], link.peripheral === peripheral else { return }
-    guard characteristic === link.notify else { return }
-    guard error == nil, characteristic.isNotifying else { close(link, "SUBSCRIBE_FAILED"); return }
+    guard characteristic === link.notify else { trace("ignored subscription callback: characteristic identity mismatch, uuid=\(characteristic.uuid)"); return }
+    guard error == nil, characteristic.isNotifying else { close(link, "SUBSCRIBE_FAILED", cause: error); return }
+    trace("central session ready")
     link.ready = true; cooldown.removeValue(forKey: peripheral.identifier)
     emit("onPeer", ["peerId": link.id, "state": "connected", "mtu": peripheral.maximumWriteValueLength(for: .withResponse) + 3])
   }
   func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
     guard wanted, let link = outgoing[peripheral.identifier], link.peripheral === peripheral, characteristic === link.write, link.pending, let job = link.queue.first else { return }
-    if error != nil { close(link, "WRITE_FAILED"); return }
+    if error != nil { close(link, "WRITE_FAILED", cause: error); return }
     link.pending = false; job.index += 1
     if job.index == job.frames.count { job.promise.resolve(nil); link.queue.removeFirst() }; pump(link)
   }
   func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
     guard wanted, let link = outgoing[peripheral.identifier], link.peripheral === peripheral, characteristic.uuid == notifyId else { return }
-    guard error == nil, let data = characteristic.value else { close(link, "READ_FAILED"); return }; _ = receive(data, link: link)
+    guard error == nil, let data = characteristic.value else { close(link, "READ_FAILED", cause: error); return }; _ = receive(data, link: link)
   }
   func peripheralManager(_ peripheral: CBPeripheralManager, didAdd service: CBService, error: Error?) {
-    guard peripheral === peripheralManager, wanted, publishedService === service else { return }
+    guard peripheral === peripheralManager, wanted else { return }
+    trace("service publication callback sameObject=\(publishedService === service) error=\(error?.localizedDescription ?? "none")")
+    guard publishedService === service else { return }
     publishedService = nil
-    guard error == nil else { serviceReady = false; self.error("SERVICE_FAILED", "Cannot publish BLE service"); return }
+    guard error == nil else { serviceReady = false; self.error("SERVICE_FAILED", error?.localizedDescription ?? "Cannot publish BLE service"); return }
     activate()
   }
-  func peripheralManagerDidStartAdvertising(_ peripheral: CBPeripheralManager, error: Error?) { guard peripheral === peripheralManager, wanted else { peripheral.stopAdvertising(); return }; advertisingPending = false; if error != nil { self.error("ADVERTISE_FAILED", "Cannot advertise BLE service") }; stateEvent() }
+  func peripheralManagerDidStartAdvertising(_ peripheral: CBPeripheralManager, error: Error?) { guard peripheral === peripheralManager, wanted else { peripheral.stopAdvertising(); return }; advertisingPending = false; trace("advertising callback active=\(peripheral.isAdvertising) error=\(error?.localizedDescription ?? "none")"); if error != nil { self.error("ADVERTISE_FAILED", error?.localizedDescription ?? "Cannot advertise BLE service") }; stateEvent() }
   func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral, didSubscribeTo characteristic: CBCharacteristic) {
-    guard peripheral === peripheralManager, wanted, characteristic === notifyChar, incoming.count < 4 || incoming[central.identifier] != nil else { return }
+    guard peripheral === peripheralManager, wanted else { return }
+    trace("peripheral subscription callback sameObject=\(characteristic === notifyChar) uuid=\(characteristic.uuid)")
+    guard characteristic === notifyChar, incoming.count < 4 || incoming[central.identifier] != nil else { return }
     let link = BeaconLink("p:\(central.identifier.uuidString):\(UUID().uuidString)"); link.central = central; link.ready = true
     if let old = incoming.updateValue(link, forKey: central.identifier) { drop(old, "REPLACED") }
     emit("onPeer", ["peerId": link.id, "state": "connected", "mtu": central.maximumUpdateValueLength + 3])
@@ -236,6 +257,7 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
       guard wanted, request.characteristic.uuid == writeId, request.characteristic.service?.uuid == service, request.offset == 0, let data = request.value, let link = incoming[request.central.identifier] else { result = .writeNotPermitted; break }
       if !receive(data, link: link) { result = .invalidAttributeValueLength; break }
     }
+    if result != .success { trace("reject write batch ATT=\(result.rawValue) subscribed=\(incoming[first.central.identifier] != nil) service=\(first.characteristic.service?.uuid.uuidString ?? "nil")") }
     peripheral.respond(to: first, withResult: result)
   }
   func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) { guard peripheral === peripheralManager, wanted else { return }; for link in incoming.values { pump(link) } }

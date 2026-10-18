@@ -2,10 +2,17 @@ import { useWindowDimensions } from "react-native";
 import { Tabs } from "expo-router";
 import { HeartHandshake, RadioTower } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useBeacon } from "../../src/services/BeaconContext";
 import { colors as c, fonts } from "../../src/theme/tokens";
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const { fontScale } = useWindowDimensions();
+  const { requests } = useBeacon();
+  const nearbyCount = requests.filter(
+    (request) =>
+      !request.mine &&
+      (request.status === "active" || request.status === "accepted"),
+  ).length;
   return (
     <Tabs
       screenOptions={{
@@ -41,7 +48,15 @@ export default function TabsLayout() {
         name="nearby"
         options={{
           title: "Help nearby",
-          tabBarAccessibilityLabel: "Help nearby",
+          tabBarAccessibilityLabel: nearbyCount
+            ? `Help nearby, ${nearbyCount} active ${nearbyCount === 1 ? "request" : "requests"}`
+            : "Help nearby",
+          tabBarBadge: nearbyCount || undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: c.text,
+            color: c.background,
+            fontFamily: fonts.medium,
+          },
           tabBarIcon: ({ color }) => <HeartHandshake size={24} color={color} />,
         }}
       />
