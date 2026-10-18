@@ -9,10 +9,11 @@ import ts from "typescript";
 
 // Exercise the actual list handlers: a receipt/new message must not pull someone
 // away from older messages they are reading. These do not emulate Bluetooth.
-function renderChat(scope: string | null = null) {
+function renderChat(scope: string | null = null, connected = true, callSupported = true, activeCall = false) {
   let listProps: any;
   let scrolls = 0;
   let calls = 0;
+  let discoveries = 0;
   const buttons = new Map<string, { onPress: () => unknown; disabled: boolean }>();
   const container = ({ children }: any) => React.createElement("div", null, children);
   const button = ({ children, accessibilityLabel, onPress, disabled }: any) => {
@@ -21,13 +22,16 @@ function renderChat(scope: string | null = null) {
   };
   const state = {
     activeGroupId: scope,
-    people: [{ nodeId: "alex", scope: null, name: "Alex", connected: true, unreadCount: 0 }],
+    people: [{ nodeId: "alex", scope: null, name: "Alex", connected, unreadCount: 0 }],
     messages: [
       { id: "later", peerId: "alex", text: "Second", createdAt: 20, mine: true, status: "queued" },
       { id: "foreign", peerId: "other", text: "Private", createdAt: 1, mine: false, status: "received" },
       { id: "earlier", peerId: "alex", text: "First", createdAt: 10, mine: false, status: "received" },
     ],
-    callSupported: true,
+    callSupported,
+    call: activeCall ? { id: "existing" } : undefined,
+    findingPeople: false,
+    findPeople: async () => { discoveries++; },
     startCall: async () => { calls++; },
   };
   const require = (name: string): any => {
@@ -60,7 +64,7 @@ function renderChat(scope: string | null = null) {
   const module = { exports: {} as any };
   runInNewContext(`(function(exports, require, module) { ${code}\n})`)(module.exports, require, module);
   renderToStaticMarkup(React.createElement(module.exports.default));
-  return { listProps, buttons, scrolls: () => scrolls, calls: () => calls };
+  return { listProps, buttons, scrolls: () => scrolls, calls: () => calls, discoveries: () => discoveries };
 }
 
 test("chat follows the latest messages initially, preserves reading position, and resumes following near the bottom", () => {
@@ -83,4 +87,33 @@ test("chat displays only the chosen peer's ordered messages in the current audie
   assert.equal(wrongAudience.listProps.data.length, 0);
   assert.equal(wrongAudience.buttons.get("Send message")?.disabled, true);
   assert.equal(ui.calls(), 0, "opening a chat must not initiate a voice call");
+});
+
+
+test("a disconnected conversation offers discovery directly without sending a message or starting a call", async () => {
+  const ui = renderChat(null, false);
+  const recovery = ui.buttons.get("Find people to reconnect");
+  assert.ok(recovery);
+  assert.equal(recovery.disabled, false);
+  await recovery.onPress();
+  assert.equal(ui.discoveries(), 1);
+  assert.equal(ui.calls(), 0);
+  assert.equal(renderChat("different-group", false).buttons.has("Find people to reconnect"), false);
+});
+
+test("the visible Call action starts a connected peer call and blocks unavailable or wrong-audience calls", async () => {
+  const ui = renderChat();
+  const call = ui.buttons.get("Call Alex");
+  assert.ok(call);
+  assert.equal(call.disabled, false);
+  assert.equal(ui.calls(), 0);
+  await call.onPress();
+  assert.equal(ui.calls(), 1);
+  for (const blocked of [renderChat(null, false), renderChat(null, true, false), renderChat(null, true, true, true), renderChat("other-group")]) {
+    const action = Array.from(blocked.buttons).find(([label]) => label.startsWith("Call "))?.[1];
+    assert.ok(action);
+    assert.equal(action.disabled, true);
+    await action.onPress();
+    assert.equal(blocked.calls(), 0);
+  }
 });

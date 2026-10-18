@@ -11,6 +11,7 @@ import { z } from "zod";
 import type { BeaconState } from "../../apps/mobile/src/ui/types.js";
 import { SocialService } from "../../apps/mobile/src/services/SocialService.js";
 import { CallService } from "../../apps/mobile/src/services/CallService.js";
+import type { StoredPerson } from "../../apps/mobile/src/storage/SocialRepository.js";
 
 // Execute actual service + protocol. Native APIs are explicit test doubles, not hardware evidence.
 const source = readFileSync(
@@ -46,6 +47,7 @@ function fixture(
   const writes: { peerId: string; wire: string }[] = [];
   const calls: string[] = [];
   const records = new Map<string, protocol.StoredMessage>();
+  const people = new Map<string, StoredPerson>();
   const forwarded = new Map<string, Set<string>>();
   class Repository {
     async initialize() {}
@@ -152,7 +154,7 @@ function fixture(
       SocialRepository: class {
         async initialize() {}
         async people() {
-          return [];
+          return [...people.values()];
         }
         async packets() {
           return [];
@@ -160,7 +162,7 @@ function fixture(
         async deliveredIds() {
           return [];
         }
-        async savePerson() {}
+        async savePerson(person: StoredPerson) { people.set(`${person.nodeId}:${person.scope ?? "public"}`, person); }
       },
     },
     "./SocialService": { SocialService },
@@ -435,4 +437,42 @@ test("transient GPS failure preserves a recent fix without making its timestamp 
   await h.service.state.refreshLocation();
   assert.equal(h.service.state.location.source, "unavailable", "permission revocation removes even a recent fix");
   assert.equal(h.service.state.error, undefined);
+});
+
+async function authenticate(h: ReturnType<typeof fixture>, peerId: string) {
+  const identity = protocol.createIdentity(randomBytes);
+  h.emit("onPeer", { peerId, state: "connected" });
+  h.emit("onData", {
+    peerId,
+    base64: base64.fromByteArray(new TextEncoder().encode(protocol.createPresence(identity, "Nearby participant", null, Date.now(), randomBytes))),
+  });
+  for (let index = 0; index < 8; index++) await turn();
+}
+
+test("retrying Bluetooth errors show a useful summary and clear only after an authenticated reconnect", async (t) => {
+  const h = fixture();
+  t.after(() => h.service.dispose());
+  await h.service.initialize();
+  h.emit("onError", { code: "SERVICE_MISSING", message: "SERVICE_MISSING: BLE session failed; reconnecting", peerId: "c:old" });
+  assert.equal(h.service.state.error, "A nearby connection was interrupted. Reconnecting…");
+  h.emit("onPeer", { peerId: "c:new", state: "connected" });
+  for (let index = 0; index < 3; index++) await turn();
+  assert.ok(h.service.state.error, "a raw native session is not an authenticated connection");
+  await authenticate(h, "c:new");
+  assert.ok(h.service.state.people.some((person) => person.connected));
+  assert.equal(h.service.state.error, undefined);
+  h.emit("onError", { code: "SERVICE_MISSING", message: "SERVICE_MISSING: BLE session failed; reconnecting", peerId: "c:other" });
+  assert.equal(h.service.state.error, undefined, "a separate failing discovery link must not contradict the working connection");
+});
+
+test("Bluetooth recovery never hides unrelated service failures", async (t) => {
+  const h = fixture();
+  t.after(() => h.service.dispose());
+  await h.service.initialize();
+  h.emit("onError", { code: "SERVICE_MISSING", message: "SERVICE_MISSING", peerId: "c:old" });
+  h.emit("onError", { code: "INVALID_FRAME", message: "Malformed or excessive Bluetooth frame", peerId: "c:old" });
+  h.emit("onError", { code: "CONNECT_FAILED", message: "CONNECT_FAILED", peerId: "c:old" });
+  assert.equal(h.service.state.error, "Malformed or excessive Bluetooth frame");
+  await authenticate(h, "c:new");
+  assert.equal(h.service.state.error, "Malformed or excessive Bluetooth frame", "successful discovery only clears the tagged retrying-connection error");
 });

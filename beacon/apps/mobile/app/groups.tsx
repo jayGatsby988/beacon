@@ -36,7 +36,9 @@ export default function Groups() {
         if (!name.trim()) throw new Error("Enter a group name.");
         await b.createGroup(name.trim());
       } else {
-        await b.joinGroup("Joined group", code.trim());
+        let number = 1;
+        while (b.groups.some((group) => group.name === `Group ${number}`)) number++;
+        await b.joinGroup(`Group ${number}`, code.trim());
         router.replace("/(tabs)/nearby");
       }
       setName("");

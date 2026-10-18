@@ -17,7 +17,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
-import { ArrowUp, Ellipsis, Phone, X } from "lucide-react-native";
+import { ArrowUp, Phone } from "lucide-react-native";
 import { useBeacon } from "../../src/services/BeaconContext";
 import {
   ErrorNotice,
@@ -51,9 +51,9 @@ function Conversation({ b, id }: { b: BeaconState; id: string | undefined }) {
   );
   const [draft, setDraft] = useState("");
   const [readError, setReadError] = useState<string>();
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const action = useAction();
   const callAction = useAction();
+  const findAction = useAction();
   const list = useRef<FlatList<DirectMessageView>>(null);
   const followLatest = useRef(true);
   const insets = useSafeAreaInsets();
@@ -130,36 +130,24 @@ function Conversation({ b, id }: { b: BeaconState; id: string | undefined }) {
             </View>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={detailsOpen ? "Close conversation options" : "Conversation options"}
-              accessibilityState={{ expanded: detailsOpen }}
-              onPress={() => setDetailsOpen((open) => !open)}
-              style={({ pressed }) => [s.detailsToggle, pressed && { opacity: 0.7 }]}
+              accessibilityLabel={`Call ${name}`}
+              accessibilityHint={callHint}
+              accessibilityState={{ disabled: !canCall, busy: callAction.busy }}
+              disabled={!canCall}
+              onPress={() => {
+                if (id && canCall) void callAction.run(() => b.startCall(id));
+              }}
+              style={({ pressed }) => [s.call, !canCall && { opacity: 0.4 }, pressed && { opacity: 0.7 }]}
             >
-              {detailsOpen ? <X size={21} color={c.secondary} /> : <Ellipsis size={22} color={c.secondary} />}
+              <Phone color={c.text} size={18} /><Text style={s.callLabel}>{callAction.busy ? "Calling…" : "Call"}</Text>
             </Pressable>
           </View>
-          {detailsOpen && <View style={s.details}>
-            <Text style={s.callHint}>Queued: saved here. Received: acknowledged by their phone. Expired: no longer sending.</Text>
-            <View style={s.personRow}>
-              <View style={s.personName}>
-                <Text style={s.connection}>Experimental voice call</Text>
-                <Text style={s.callHint}>{b.callSupported ? "iPhone only · Audio may not work reliably." : callHint}</Text>
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Call ${name}`}
-                accessibilityHint={callHint}
-                accessibilityState={{ disabled: !canCall, busy: callAction.busy }}
-                disabled={!canCall}
-                onPress={() => {
-                  if (id && canCall) void callAction.run(() => b.startCall(id));
-                }}
-                style={({ pressed }) => [s.call, !canCall && { opacity: 0.4 }, pressed && { opacity: 0.7 }]}
-              >
-                <Phone color={c.secondary} size={18} /><Text style={s.callLabel}>Call</Text>
-              </Pressable>
-            </View>
-            {b.callSupported && (!person?.connected || b.call) && <Text style={s.callHint}>{callHint}</Text>}
+          {person?.connected && (!b.callSupported || b.call) && <Text style={s.callHint}>{callHint}</Text>}
+          {person && !person.connected && <View style={s.recovery}>
+            <Text style={s.recoveryText}>Messages wait here until you reconnect.</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Find people to reconnect" accessibilityState={{ busy: findAction.busy || b.findingPeople, disabled: findAction.busy || b.findingPeople }} disabled={findAction.busy || b.findingPeople} onPress={() => void findAction.run(b.findPeople)} style={s.recoveryButton}>
+              <Text style={s.callLabel}>{findAction.busy || b.findingPeople ? "Finding…" : "Find people"}</Text>
+            </Pressable>
           </View>}
         </View>
         <FlatList
@@ -189,7 +177,7 @@ function Conversation({ b, id }: { b: BeaconState; id: string | undefined }) {
           ]}
         >
           <ErrorNotice
-            message={callAction.error || action.error || readError}
+            message={callAction.error || action.error || findAction.error || readError}
           />
           <View style={s.composer}>
             <TextInput
@@ -266,14 +254,15 @@ const s = StyleSheet.create({
   avatar: { width: 44, height: 44, borderRadius: 14, backgroundColor: c.raised, alignItems: "center", justifyContent: "center" },
   initials: { fontFamily: fonts.medium, fontSize: 15, color: c.secondary },
   connection: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 19, color: c.secondary },
-  detailsToggle: { width: 48, height: 48, borderRadius: 16, backgroundColor: c.card, alignItems: "center", justifyContent: "center" },
-  details: { gap: 16, marginTop: 12, backgroundColor: c.card, borderRadius: 16, padding: 16 },
+  recovery: { flexDirection: "row", alignItems: "center", gap: 12, paddingTop: 8 },
+  recoveryText: { flex: 1, fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: c.secondary },
+  recoveryButton: { minHeight: 48, paddingHorizontal: 12, justifyContent: "center", borderRadius: 10, borderWidth: 1, borderColor: c.border },
   empty: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 36 },
   emptyTitle: { fontFamily: fonts.medium, color: c.text, fontSize: 17, textAlign: "center" },
   emptyDetail: { fontFamily: fonts.body, color: c.muted, fontSize: 14, lineHeight: 21, textAlign: "center", maxWidth: 300 },
   call: {
     minWidth: 88,
-    minHeight: 44,
+    minHeight: 48,
     flexDirection: "row",
     gap: 8,
     paddingHorizontal: 14,

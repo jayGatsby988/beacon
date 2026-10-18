@@ -65,7 +65,7 @@ function ConnectionForm({ beacon: b }: { beacon: BeaconState }) {
       </Card>
       <Card>
         <Field label="HTTPS server URL" value={url} onChangeText={(value) => { setUrl(value); setSaved(false); }} placeholder="https://beacon.example.org" autoCapitalize="none" autoCorrect={false} keyboardType="url" maxLength={2048} editable={!busy} />
-        <Field label="Incident ID" value={incidentId} onChangeText={(value) => { setIncidentId(value); setSaved(false); }} placeholder="campus-drill" autoCapitalize="none" autoCorrect={false} maxLength={80} editable={!busy} />
+        <Field label="Incident ID" value={incidentId} onChangeText={(value) => { setIncidentId(value); setSaved(false); }} placeholder="ID from your organizer" autoCapitalize="none" autoCorrect={false} maxLength={80} editable={!busy} />
         <Field label={connected ? "New access token" : "Access token"} value={token} onChangeText={(value) => { setToken(value); setSaved(false); }} secureTextEntry autoCapitalize="none" autoCorrect={false} autoComplete="off" textContentType="none" maxLength={128} editable={!busy} />
         {connected && <Body muted>Saved tokens are never displayed. Enter a new token to update this connection.</Body>}
         <Body muted>Saving does not upload. Open History and choose Sync recorded events when you are ready.</Body>

@@ -27,7 +27,7 @@ import {
   type MessageInput,
   type StoredMessage,
 } from "@beacon/protocol";
-import BeaconBle, { type BlePeer } from "../../modules/beacon-ble";
+import BeaconBle, { type BleError, type BlePeer } from "../../modules/beacon-ble";
 import { Repository, type EventRow } from "../storage/Repository";
 import type { BeaconState, EventView, LocationReport, RequestView } from "../ui/types";
 import { MapService } from "./MapService";
@@ -56,6 +56,10 @@ const titles: Record<string, string> = {
 };
 const safeError = (e: unknown) =>
   e instanceof Error ? e.message : "The action could not be completed.";
+const RETRYING_BLUETOOTH_ERRORS = new Set([
+  "SERVICE_MISSING", "CHARACTERISTICS_MISSING", "SUBSCRIBE_FAILED",
+  "CONNECT_FAILED", "DISCONNECTED", "WRITE_FAILED", "READ_FAILED", "TIMEOUT",
+]);
 const random = (n: number) => Crypto.getRandomBytes(n);
 const identitySchema = z.object({
   nodeId: z.string().regex(/^[a-f0-9]{64}$/),
@@ -115,6 +119,8 @@ export class BeaconService {
   private networkProbe?: Promise<void>;
   private actions = Promise.resolve();
   private appActive = true;
+  private transientBluetoothError?: string;
+  private lastBluetoothFailure?: { code: string; at: number };
   private deviceSubscriptions: { remove(): void }[] = [];
   private timer?: ReturnType<typeof setInterval>;
   private callTimer?: ReturnType<typeof setInterval>;
@@ -206,7 +212,39 @@ export class BeaconService {
     this.state = { ...this.state, ...changed };
     this.listeners.forEach((l) => l());
   }
-  private error = (e: unknown) => this.update({ error: safeError(e) });
+  private error = (e: unknown) => {
+    const code = e && typeof e === "object" && "code" in e ? e.code : undefined;
+    if (typeof code === "string" && RETRYING_BLUETOOTH_ERRORS.has(code)) {
+      this.bluetoothError({ code, message: safeError(e) });
+      return;
+    }
+    this.transientBluetoothError = undefined;
+    this.update({ error: safeError(e) });
+  };
+  private clearBluetoothError() {
+    if (this.transientBluetoothError && this.state.error === this.transientBluetoothError)
+      this.update({ error: undefined });
+    this.transientBluetoothError = undefined;
+  }
+  private bluetoothError = (event: BleError) => {
+    this.lastBluetoothFailure = { code: event.code, at: Date.now() };
+    if (!RETRYING_BLUETOOTH_ERRORS.has(event.code)) {
+      this.error(new Error(event.message));
+      return;
+    }
+    // A failed central session can coexist with a healthy peripheral session.
+    // Raw discovery failures belong in diagnostics, not above a connected person.
+    const alternateConnection = this.state.peers.some((peer) =>
+      peer.state === "connected" && peer.id !== event.peerId && this.social?.peerNodeId(peer.id));
+    if (alternateConnection) {
+      this.clearBluetoothError();
+      return;
+    }
+    // Never replace or later clear an unrelated storage/protocol/action failure.
+    if (this.state.error && this.state.error !== this.transientBluetoothError) return;
+    this.transientBluetoothError = "A nearby connection was interrupted. Reconnecting…";
+    this.update({ error: this.transientBluetoothError });
+  };
   private repo() {
     if (!this.repository)
       throw new Error("Beacon is still opening its local storage.");
@@ -409,7 +447,11 @@ export class BeaconService {
         send: (peer, wire, scope) => this.sendWire(peer, wire, scope),
         getRead: (key) => this.repo().getSetting(key, 0),
         setRead: (key, time) => this.repo().setSetting(key, time),
-        onChange: (people, messages) => this.update({ people, messages }),
+        onChange: (people, messages) => {
+          this.update({ people, messages });
+          if (people.some((person) => person.connected && person.scope === this.state.activeGroupId))
+            this.clearBluetoothError();
+        },
         onError: this.error,
       });
       await this.social.refresh();
@@ -472,9 +514,7 @@ export class BeaconService {
         BeaconBle.addListener("onPeer", (e) => {
           void this.onPeer(e).catch(this.error);
         }),
-        BeaconBle.addListener("onError", (e) =>
-          this.error(new Error(e.message)),
-        ),
+        BeaconBle.addListener("onError", this.bluetoothError),
         BeaconBle.addListener("onData", (e) => this.onData(e.peerId, e.base64)),
       );
       this.deviceSubscriptions.push(
@@ -1551,6 +1591,7 @@ export class BeaconService {
       generatedAt: new Date().toISOString(),
       platform: Platform.OS,
       bluetooth: this.state.bluetooth,
+      lastBluetoothFailure: this.lastBluetoothFailure,
       relayEnabled: this.state.relayEnabled,
       queueCount: this.state.queueCount,
       requestCounts: {
