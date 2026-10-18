@@ -9,6 +9,7 @@ import * as policy from "../../apps/mobile/src/services/ServicePolicy.js";
 import * as base64 from "base64-js";
 import { z } from "zod";
 import type { BeaconState } from "../../apps/mobile/src/ui/types.js";
+import { SocialService } from "../../apps/mobile/src/services/SocialService.js";
 
 // Execute actual service + protocol. Native APIs are explicit test doubles, not hardware evidence.
 const source = readFileSync(
@@ -35,6 +36,7 @@ function fixture(
     map?: () => Promise<void>;
     network?: () => Promise<unknown>;
     location?: () => Promise<unknown>;
+    fastLocationTimeout?: boolean;
   } = {},
 ) {
   const listeners = new Map<string, (event: any) => void>();
@@ -47,6 +49,7 @@ function fixture(
     async getSetting(key: string, fallback: unknown) {
       return key === "setupComplete" ? true : fallback;
     }
+    async setSetting() {}
     async listMessages() {
       return [...records.values()];
     }
@@ -119,6 +122,8 @@ function fixture(
     },
     "expo-crypto": { getRandomBytes: randomBytes, randomUUID },
     "expo-location": {
+      Accuracy: { Balanced: 3 },
+      getCurrentPositionAsync: never,
       getForegroundPermissionsAsync:
         options.location ??
         (async () => ({ status: "denied", granted: false })),
@@ -135,6 +140,22 @@ function fixture(
     "@beacon/protocol": protocol,
     "../../modules/beacon-ble": bluetooth,
     "../storage/Repository": { Repository },
+    "../storage/SocialRepository": {
+      SocialRepository: class {
+        async initialize() {}
+        async people() {
+          return [];
+        }
+        async packets() {
+          return [];
+        }
+        async deliveredIds() {
+          return [];
+        }
+        async savePerson() {}
+      },
+    },
+    "./SocialService": { SocialService },
     "./ServicePolicy": policy,
     "./MapService": {
       MapService: class {
@@ -152,7 +173,11 @@ function fixture(
       TextEncoder,
       TextDecoder,
       URL,
-      setTimeout,
+      setTimeout: (callback: () => void, ms: number) =>
+        setTimeout(
+          callback,
+          options.fastLocationTimeout && ms === 6000 ? 0 : ms,
+        ),
       clearTimeout,
       setInterval: () => 1,
       clearInterval: () => {},
@@ -196,8 +221,9 @@ test(
     assert.ok(
       h.writes.some(
         (p) =>
+          JSON.parse(p.wire).envelope &&
           protocol.decodePacket(p.wire, Date.now()).envelope.requestId ===
-          requestId,
+            requestId,
       ),
     );
     assert.equal(h.service.state.error, undefined);
@@ -266,6 +292,24 @@ test(
     assert.equal(view?.mine, false);
     assert.equal(view?.note, "Synthetic café assistance");
     assert.equal(h.service.state.error, undefined);
+  },
+);
+
+test(
+  "a slow optional GPS lookup leaves SOS usable without a global action error",
+  { timeout: 3000 },
+  async (t) => {
+    const h = fixture({
+      location: async () => ({ status: "granted", granted: true }),
+      fastLocationTimeout: true,
+    });
+    t.after(() => h.service.dispose());
+    await h.service.initialize();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(h.service.state.location.source, "unavailable");
+    assert.equal(h.service.state.error, undefined);
+    const id = await h.service.sendSOS();
+    assert.ok(h.service.state.requests.some((r) => r.id === id));
   },
 );
 

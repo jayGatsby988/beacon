@@ -52,6 +52,7 @@ export class Repository implements MessageRepository {
     readonly db: Database,
     readonly nodeId: string,
     private readonly clock = Date.now,
+    private readonly options: { privateMode?: boolean } = {},
   ) {}
   async initialize() {
     await this.db.execAsync(SCHEMA);
@@ -196,6 +197,7 @@ export class Repository implements MessageRepository {
     time: number,
     data: { message?: Envelope; peerId?: string },
   ) {
+    if (this.options.privateMode) return;
     const existing = await this.db.getFirstAsync<{ id: string }>(
       "SELECT id FROM events WHERE id=?",
       id,
@@ -288,12 +290,14 @@ export class Repository implements MessageRepository {
     );
   }
   async events(): Promise<EventRow[]> {
+    if (this.options.privateMode) return [];
     await this.writeTail;
     return this.db.getAllAsync<EventRow>(
       "SELECT * FROM events ORDER BY sequence DESC LIMIT 2000",
     );
   }
   async pendingCount(): Promise<number> {
+    if (this.options.privateMode) return 0;
     await this.writeTail;
     return (
       (
@@ -304,6 +308,7 @@ export class Repository implements MessageRepository {
     );
   }
   async uploadBatch(force = false): Promise<CloudEvent[]> {
+    if (this.options.privateMode) return [];
     await this.writeTail;
     const rows = await this.db.getAllAsync<EventRow>(
       "SELECT e.* FROM events e JOIN outbox o ON o.event_id=e.id WHERE o.next_attempt<=? ORDER BY e.sequence LIMIT 50",

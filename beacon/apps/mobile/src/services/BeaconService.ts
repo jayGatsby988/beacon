@@ -16,6 +16,11 @@ import {
   LIMITS,
   MeshRouter,
   createEnvelope,
+  createSocialGroup,
+  joinSocialGroup,
+  sealGroup,
+  openGroup,
+  type SocialGroup,
   type Identity,
   type LocationReport as ProtocolLocation,
   type MessageInput,
@@ -24,6 +29,8 @@ import BeaconBle, { type BlePeer } from "../../modules/beacon-ble";
 import { Repository, type EventRow } from "../storage/Repository";
 import type { BeaconState, EventView, RequestView } from "../ui/types";
 import { MapService } from "./MapService";
+import { SocialRepository } from "../storage/SocialRepository";
+import { SocialService } from "./SocialService";
 import {
   hasPendingUpdate,
   validatedCloudUrl,
@@ -57,6 +64,17 @@ export class BeaconService {
   private listeners = new Set<() => void>();
   private repository?: Repository;
   private database?: SQLite.SQLiteDatabase;
+  private socialDatabase?: SQLite.SQLiteDatabase;
+  private social?: SocialService;
+  private scopes = new Map<
+    string,
+    {
+      database: SQLite.SQLiteDatabase;
+      repository: Repository;
+      router: MeshRouter;
+    }
+  >();
+  private scopeChanging = false;
   private pendingPeerEvents = 0;
   private identity?: Identity;
   private router?: MeshRouter;
@@ -85,6 +103,15 @@ export class BeaconService {
       setupComplete: false,
       displayName: "Participant",
       nodeId: "",
+      groups: [],
+      activeGroupId: null,
+      people: [],
+      messages: [],
+      createGroup: this.createGroup,
+      joinGroup: this.joinGroup,
+      selectGroup: this.selectGroup,
+      sendText: this.sendText,
+      markChatRead: this.markChatRead,
       requests: [],
       peers: [],
       events: [],
@@ -137,6 +164,46 @@ export class BeaconService {
     if (!this.router) throw new Error("Beacon is still preparing.");
     return this.router;
   }
+  private scopeRepo() {
+    return this.state.activeGroupId
+      ? this.scopes.get(this.state.activeGroupId)!.repository
+      : this.repo();
+  }
+  private socialRequired() {
+    if (!this.social) throw new Error("Nearby messaging is still opening.");
+    return this.social;
+  }
+  private async sendWire(peerId: string, wire: string, scope: string | null) {
+    if (
+      this.disposed ||
+      scope !== this.state.activeGroupId ||
+      !this.state.relayEnabled
+    )
+      throw new Error("Connection changed; message remains saved.");
+    const group = scope
+      ? this.state.groups.find((g) => g.id === scope)
+      : undefined;
+    if (scope && !group) throw new Error("Group unavailable.");
+    const packet = group ? sealGroup(group, wire, random) : wire;
+    await BeaconBle.send(
+      peerId,
+      fromByteArray(new TextEncoder().encode(packet)),
+    );
+  }
+  private makeRouter(repository: Repository, scope: string | null) {
+    return new MeshRouter({
+      identity: this.identity!,
+      repository,
+      randomBytes: random,
+      clock: Date.now,
+      awaitForwarding: false,
+      transport: { send: (peerId, wire) => this.sendWire(peerId, wire, scope) },
+      onChange: () => {
+        void this.refresh().catch(this.error);
+      },
+      onError: this.error,
+    });
+  }
   private mapsRequired() {
     if (!this.maps) throw new Error("Maps are still preparing.");
     return this.maps;
@@ -163,11 +230,16 @@ export class BeaconService {
     for (const subscription of this.deviceSubscriptions) subscription.remove();
     this.deviceSubscriptions = [];
     for (const peer of this.state.peers) this.router?.disconnect(peer.id);
+    this.social?.reset();
     try {
       await BeaconBle.stop();
       await this.router?.flush();
       await this.receiveTail;
       await this.actions;
+      await this.social?.settle();
+      await this.socialDatabase?.closeAsync();
+      for (const scope of this.scopes.values())
+        await scope.database.closeAsync();
       await this.database?.closeAsync();
     } catch {
       /* Unmount has no presentation surface. */
@@ -216,25 +288,43 @@ export class BeaconService {
         false,
       );
       const relayEnabled = await this.repo().getSetting("relayEnabled", true);
-      this.router = new MeshRouter({
+      const storedGroups = await SecureStore.getItemAsync("beacon.groups.v1");
+      const groupInputs = storedGroups
+        ? z
+            .array(z.object({ name: z.string(), inviteCode: z.string() }))
+            .max(8)
+            .parse(JSON.parse(storedGroups))
+        : [];
+      const groups = groupInputs.map((g) =>
+        joinSocialGroup(g.name, g.inviteCode),
+      );
+      const selected = await this.repo().getSetting<string | null>(
+        "activeGroupId",
+        null,
+      );
+      const activeGroupId = groups.some((g) => g.id === selected)
+        ? selected
+        : null;
+      this.update({ groups, activeGroupId, displayName, relayEnabled });
+      this.router = activeGroupId
+        ? await this.groupRouter(activeGroupId)
+        : this.makeRouter(this.repository, null);
+      this.socialDatabase = await SQLite.openDatabaseAsync("beacon-social.db");
+      const socialRepository = new SocialRepository(this.socialDatabase);
+      await socialRepository.initialize();
+      this.social = new SocialService({
         identity: this.identity,
-        repository: this.repository,
-        randomBytes: random,
-        clock: Date.now,
-        awaitForwarding: false,
-        transport: {
-          send: async (peerId, wire) => {
-            await BeaconBle.send(
-              peerId,
-              fromByteArray(new TextEncoder().encode(wire)),
-            );
-          },
-        },
-        onChange: () => {
-          void this.refresh().catch(this.error);
-        },
+        repository: socialRepository,
+        scope: () => this.state.activeGroupId,
+        name: () => this.state.displayName,
+        random,
+        send: (peer, wire, scope) => this.sendWire(peer, wire, scope),
+        getRead: (key) => this.repo().getSetting(key, 0),
+        setRead: (key, time) => this.repo().setSetting(key, time),
+        onChange: (people, messages) => this.update({ people, messages }),
         onError: this.error,
       });
+      await this.social.refresh();
       this.maps = new MapService(
         this.repository,
         () => this.state.location,
@@ -289,6 +379,7 @@ export class BeaconService {
             .flush()
             .then(() => this.refresh())
             .catch(this.error);
+          void this.social?.tick().catch(this.error);
         }
       }, 15_000);
       this.update({ loading: false });
@@ -314,7 +405,8 @@ export class BeaconService {
       this.networkProbe = Network.getNetworkStateAsync()
         .then((network) => {
           this.update({
-            internet: network.isInternetReachable ?? network.isConnected ?? null,
+            internet:
+              network.isInternetReachable ?? network.isConnected ?? null,
           });
         })
         .catch(() => {
@@ -365,10 +457,12 @@ export class BeaconService {
       const connection = this.mesh().connect(e.peerId);
       await Promise.all([
         connection,
+        this.social?.connect(e.peerId),
         this.recordPeerEvent("peer_connected", e.peerId),
       ]);
     } else if (e.state === "disconnected") {
       this.mesh().disconnect(e.peerId);
+      this.social?.disconnect(e.peerId);
       if (old?.state === "connected")
         await this.recordPeerEvent("peer_disconnected", e.peerId);
     }
@@ -377,7 +471,11 @@ export class BeaconService {
     if (this.pendingPeerEvents >= 32) return;
     this.pendingPeerEvents++;
     try {
-      await this.repo().recordEvent(hash(Crypto.randomUUID()), kind, peerId);
+      await this.scopeRepo().recordEvent(
+        hash(Crypto.randomUUID()),
+        kind,
+        peerId,
+      );
     } finally {
       this.pendingPeerEvents--;
     }
@@ -403,10 +501,20 @@ export class BeaconService {
         const bytes = toByteArray(base64);
         if (bytes.length > LIMITS.wireBytes)
           throw new Error("Oversized Bluetooth message.");
-        await this.mesh().receive(
-          peerId,
-          new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-        );
+        if (this.scopeChanging) return;
+        const scope = this.state.activeGroupId;
+        const wire = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        const group = scope
+          ? this.state.groups.find((g) => g.id === scope)
+          : undefined;
+        const decoded = group ? openGroup(group, wire) : wire;
+        if (!decoded) return;
+        // Public mode never interprets sealed private traffic as ordinary SOS.
+        if (!group && (JSON.parse(wire) as { type?: string }).type === "group")
+          return;
+        if (await this.social?.receive(peerId, decoded)) return;
+        if (scope !== this.state.activeGroupId) return;
+        await this.mesh().receive(peerId, decoded);
       })
       .catch(this.error)
       .finally(() => {
@@ -422,8 +530,10 @@ export class BeaconService {
     this.refreshPromise = (async () => {
       do {
         this.refreshAgain = false;
-        const records = await this.repo().listMessages();
-        const counts = await this.repo().forwardingCounts();
+        const scope = this.state.activeGroupId;
+        const repository = this.scopeRepo();
+        const records = await repository.listMessages();
+        const counts = await repository.forwardingCounts();
         const requests = deriveRequests(records.map((r) => r.envelope));
         const views: RequestView[] = requests.map((r) => {
           const mine = r.requesterId === this.state.nodeId;
@@ -431,6 +541,7 @@ export class BeaconService {
           const pending = hasPendingUpdate(r, this.state.nodeId);
           return {
             id: r.id,
+            groupId: scope,
             originNodeId: r.requesterId,
             name: r.displayName,
             mine,
@@ -480,7 +591,7 @@ export class BeaconService {
             pendingUpdate: pending,
           };
         });
-        const events = (await this.repo().events()).map((r) =>
+        const events = (await repository.events()).map((r) =>
           this.eventView(r),
         );
         const url = await this.repo().getSetting("cloudUrl", "");
@@ -490,10 +601,14 @@ export class BeaconService {
             await Promise.all(
               this.state.peers
                 .filter((p) => p.state === "connected")
-                .map((p) => this.repo().listForwarded(p.id)),
+                .map((p) => repository.listForwarded(p.id)),
             )
           ).flat(),
         );
+        if (scope !== this.state.activeGroupId) {
+          this.refreshAgain = true;
+          continue;
+        }
         this.update({
           requests: views,
           events,
@@ -583,10 +698,8 @@ export class BeaconService {
         }),
       ]);
       if (!position) {
-        this.update({
-          error:
-            "Location is taking longer than expected. You can send SOS without it.",
-        });
+        // Optional location must not turn an otherwise usable SOS screen into an error state.
+        this.update({ location: { source: "unavailable" } });
         return;
       }
       const report = locationForSOS({
@@ -630,8 +743,93 @@ export class BeaconService {
     );
     return run;
   }
+  private async groupRouter(id: string) {
+    const existing = this.scopes.get(id);
+    if (existing) return existing.router;
+    if (!this.identity || !this.state.groups.some((g) => g.id === id))
+      throw new Error("Group unavailable.");
+    const database = await SQLite.openDatabaseAsync(`beacon-group-${id}.db`);
+    try {
+      const repository = new Repository(
+        database,
+        this.identity.nodeId,
+        Date.now,
+        { privateMode: true },
+      );
+      await repository.initialize();
+      const router = this.makeRouter(repository, id);
+      this.scopes.set(id, { database, repository, router });
+      return router;
+    } catch (error) {
+      await database.closeAsync();
+      throw error;
+    }
+  }
+  private async saveGroup(group: SocialGroup) {
+    const groups = [
+      ...this.state.groups.filter((g) => g.id !== group.id),
+      group,
+    ];
+    if (groups.length > 8)
+      throw new Error("You can join up to 8 groups on this phone.");
+    await SecureStore.setItemAsync("beacon.groups.v1", JSON.stringify(groups), {
+      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    });
+    this.update({ groups });
+    await this.changeGroup(group.id);
+  }
+  createGroup = (name: string) =>
+    this.serialize(async () => {
+      await this.saveGroup(createSocialGroup(name.trim(), random));
+    });
+  joinGroup = (name: string, inviteCode: string) =>
+    this.serialize(async () => {
+      await this.saveGroup(joinSocialGroup(name.trim(), inviteCode.trim()));
+    });
+  selectGroup = (id: string | null) =>
+    this.serialize(() => this.changeGroup(id));
+  private async changeGroup(id: string | null) {
+    if (id === this.state.activeGroupId) return;
+    if (id !== null && !this.state.groups.some((g) => g.id === id))
+      throw new Error("Join this group first.");
+    // Bind every saved request to its original scope. Switching never rebroadcasts private packets publicly.
+    this.scopeChanging = true;
+    try {
+      await this.receiveTail;
+      const next = id
+        ? await this.groupRouter(id)
+        : this.makeRouter(this.repo(), null);
+      await this.repo().setSetting("activeGroupId", id);
+      for (const peer of this.state.peers) this.mesh().disconnect(peer.id);
+      this.social?.reset();
+      this.router = next;
+      this.update({
+        activeGroupId: id,
+        requests: [],
+        people: [],
+        messages: [],
+        events: [],
+        error: undefined,
+      });
+    } finally {
+      this.scopeChanging = false;
+    }
+    const connected = this.state.peers.filter((p) => p.state === "connected");
+    await Promise.all(
+      connected.flatMap((p) => [
+        this.mesh().connect(p.id),
+        this.socialRequired().connect(p.id),
+      ]),
+    );
+    await this.refresh();
+    await this.socialRequired().refresh();
+  }
+  sendText = (peerId: string, text: string) =>
+    this.serialize(() => this.socialRequired().sendText(peerId, text));
+  markChatRead = (peerId: string) => this.socialRequired().markChatRead(peerId);
   private async publish(input: MessageInput) {
     await this.mesh().publish(input);
+    this.update({ error: undefined });
     await this.refresh();
   }
   sendSOS = async (input: Parameters<BeaconState["sendSOS"]>[0] = {}) =>
@@ -658,7 +856,7 @@ export class BeaconService {
     });
   private async request(id: string) {
     const r = deriveRequests(
-      (await this.repo().listMessages()).map((m) => m.envelope),
+      (await this.scopeRepo().listMessages()).map((m) => m.envelope),
     ).find((r) => r.id === id);
     if (!r) throw new Error("Request not available on this phone.");
     if (
@@ -755,6 +953,8 @@ export class BeaconService {
     else {
       await BeaconBle.stop();
       for (const peer of this.state.peers) this.mesh().disconnect(peer.id);
+      this.social?.reset();
+      await this.social?.refresh();
       this.update({
         relayRunning: false,
         peers: this.state.peers.map((p) => ({ ...p, state: "disconnected" })),
@@ -1079,7 +1279,7 @@ export class BeaconService {
     await Sharing.shareAsync(path, { mimeType: "application/json" });
   };
   clearHistory = async () => {
-    await this.repo().clearEligibleHistory();
+    await this.scopeRepo().clearEligibleHistory();
     await this.refresh();
   };
 }

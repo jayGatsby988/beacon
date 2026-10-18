@@ -16,7 +16,30 @@ export interface HelpOffer {
   accepted: boolean;
   assignmentReceived: boolean;
 }
+export interface GroupView {
+  id: string;
+  name: string;
+  inviteCode: string;
+}
+export interface PersonView {
+  nodeId: string;
+  publicKey: string;
+  name: string;
+  scope: string | null;
+  connected: boolean;
+  lastSeenAt: number;
+  unreadCount: number;
+}
+export interface DirectMessageView {
+  id: string;
+  peerId: string;
+  mine: boolean;
+  text: string;
+  createdAt: number;
+  status: "queued" | "received" | "expired";
+}
 export interface RequestView {
+  groupId?: string | null;
   id: string;
   originNodeId: string;
   name: string;
@@ -86,15 +109,15 @@ export interface BeaconState {
   setupComplete: boolean;
   displayName: string;
   nodeId: string;
+  groups: GroupView[];
+  activeGroupId: string | null;
+  people: PersonView[];
+  messages: DirectMessageView[];
   requests: RequestView[];
   peers: PeerView[];
   events: EventView[];
   bluetooth:
-    | "poweredOn"
-    | "poweredOff"
-    | "unauthorized"
-    | "unsupported"
-    | "unknown";
+    "poweredOn" | "poweredOff" | "unauthorized" | "unsupported" | "unknown";
   relayEnabled: boolean;
   relayRunning: boolean;
   queueCount: number;
@@ -111,6 +134,11 @@ export interface BeaconState {
     summary?: IncidentSummary;
   };
   error?: string;
+  createGroup(name: string): Promise<void>;
+  joinGroup(name: string, inviteCode: string): Promise<void>;
+  selectGroup(id: string | null): Promise<void>;
+  sendText(peerId: string, text: string): Promise<void>;
+  markChatRead(peerId: string): Promise<void>;
   completeSetup(name: string): Promise<void>;
   requestPermissions(): Promise<void>;
   refreshLocation(): Promise<void>;
