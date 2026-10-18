@@ -2,6 +2,10 @@
 
 Implementation, automated checks, native compilation, and physical acceptance are separate evidence. This document does not infer radio delivery or rescue from a build passing.
 
+## Subsequent phone reconnection
+
+After the final recheck, the user connected Darshan's iPhone 17 Pro. The final signed build installed and launched successfully, and a subsequent process query confirmed Beacon still running. Vaibhav's phone remained unavailable. This supersedes the one-phone installation blocker below, but physical direct-message exchange and private-group delivery between two updated phones remain unverified. See [the installation record](NEARBY_GROUPS.md).
+
 ## Final recheck — October 17, 23:45 local
 
 The complete workspace passes **86 tests, zero failures, zero skips**, using real local PostgreSQL 18.6 / TimescaleDB 2.30.2. Mobile/API TypeScript and ESLint pass. Migrations and HTTP checks also pass, including signed upload deduplication, incident access controls, revoked credentials, replay, and late aggregate refresh. The isolated database was stopped and its temporary data and password file removed afterward. Sanitized output is in [the workspace evidence](evidence/local-timescale-workspace-check.txt) and [HTTP evidence](evidence/local-timescale-http.json).
