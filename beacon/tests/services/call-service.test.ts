@@ -527,4 +527,15 @@ test("native failures use readable messages and toggle failures stay visible wit
     g.service.snapshot?.reason,
     "Allow microphone access in Settings to talk.",
   );
+  const pendingChannel =
+    "Bluetooth is still closing the last call. Restart Nearby in Settings if this continues.";
+  g.native.error = new Error(`Calling voicePrepare failed: ${pendingChannel}`);
+  await g.service.start(g.remote.nodeId);
+  assert.equal(g.service.snapshot?.reason, pendingChannel);
+  g.native.error = new Error("private unknown platform detail");
+  await g.service.start(g.remote.nodeId);
+  assert.equal(
+    g.service.snapshot?.reason,
+    "Could not connect the call. Try again.",
+  );
 });

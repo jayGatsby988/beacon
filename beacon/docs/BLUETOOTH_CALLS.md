@@ -26,11 +26,26 @@ start only after the encrypted readiness proof and explicit `voiceStart`.
 
 AVAudioEngine voice processing provides the platform's echo cancellation. Opus
 encodes 16 kHz mono speech in 20 ms frames at 12 kbit/s. At most three capture
-blocks and six playback frames are queued. Unsent audio older than 150 ms is
+blocks and six playback frames are queued. The requested input tap size is only
+a preference: supported hardware blocks may contain up to 300 ms of audio.
+`BeaconVoicePCM` validates duration against the actual sample rate (8–192 kHz,
+1–8 channels, with an additional 65,536-frame safety ceiling). It splits converted
+16 kHz PCM into every complete 320-sample codec frame and retains fewer than 320
+samples for the next block. A valid large hardware block is not discarded just
+because its frame count exceeds 4,096 or its converted sample count exceeds
+3,200. Unsupported blocks fail explicitly rather than producing silent capture.
+Unsent audio older than 150 ms is
 dropped; a partially written record stalled for 500 ms closes the call instead
 of accumulating latency. Frame sizes, parser memory, and write queues are
 bounded. Muting suppresses new and queued unsent microphone packets; bytes
 already handed to the Bluetooth stream cannot be recalled.
+
+The 12 kbit/s codec payload is not the total radio budget. A usual 30-byte Opus
+packet becomes a 58-byte framed encrypted record: 1-byte audio kind, 1-byte
+record kind, 8-byte sequence, 16-byte authentication tag, and 2-byte length.
+At 50 frames/second this is about 2.9 kB/s per direction, or 46.4 kbit/s duplex,
+before L2CAP/Bluetooth overhead and control records. Silence suppression can
+reduce the payload traffic.
 
 Only one native call is allowed. Backgrounding, audio interruptions, loss of an
 audio device, Bluetooth disconnect, stream failure, and timeouts stop capture,
@@ -38,6 +53,15 @@ playback, streams, timers, and observers. Pending prepare/start promises reject
 when the call ends. Stop is scoped to the call ID, so stale cleanup cannot end a
 new call. Native audio and ciphertext are held in memory and are not recorded to
 disk. Diagnostic call events contain state/reason codes and frame counts.
+
+Operational diagnostics write directly to stdout: connection/authentication
+stages, hardware tap size/sample rate/channel count, generic route type, native
+error domain/code, and a bounded counter summary every two seconds while ready.
+The summary distinguishes captured, converted, encoded, transmitted, received,
+decoded, and played frames, nonzero-buffer counts, and dropped blocks. Logs do
+not contain audio samples, call or peer identities, keys, or message content;
+the app does not persist these logs. A developer may capture stdout separately
+with the device console during a physical check.
 
 CoreBluetooth does not expose cancellation of an individual pending channel-open
 operation or an unpublished listener whose PSM has not yet returned. If its
@@ -65,6 +89,13 @@ frames. It also compiles and executes the actual CryptoKit implementation with
 duplex traffic, tampering, replay, out-of-order packets, wrong secret/call/role,
 fresh retry, and invalid-input cases. Temporary executables are removed.
 
+The retained `BeaconVoicePCMTests.swift` regression additionally runs the real
+AVAudioConverter with the production PCM sizing/framing helper across 22
+accepted format/block-size cases. It verifies nonzero synthetic output and exact
+sample conservation, including 4,800 frames at 48 kHz and 4,096 frames at 16 kHz,
+plus invalid duration/rate/channel and converted-block bounds. It does not open
+the microphone or use recorded speech.
+
 These checks passed on 2026-10-18. They establish codec and cryptographic behavior;
 they do not establish physical L2CAP throughput, speech intelligibility, echo
 cancellation quality, microphone permissions, or background/foreground behavior
@@ -73,3 +104,17 @@ Physical acceptance requires both phones: accept and speak in both directions,
 check mute and speaker routing, end from either side, repeat a call, interrupt
 and background a call, disconnect Bluetooth, and confirm SOS still works while
 audio is active. Report measured hardware results separately.
+
+### Physical audio investigation — 2026-10-18
+
+The first two-phone call reached a running timer on both phones, but both were
+silent despite microphone permission, speaker output, and increased volume.
+This establishes a failed audio acceptance test, not working voice delivery.
+The synthetic regression then reproduced two real implementation defects:
+the fixed 4,096-frame input cutoff discarded a valid 4,800-frame/48 kHz block,
+and the 3,200-sample accumulator cutoff discarded a valid 4,096-frame/16 kHz
+block. Both paths were replaced by the duration-aware production helper above;
+the complete native check script, including all 22 converter/framing cases,
+passed. Actual hardware tap sizes and successful two-way speech still require
+the diagnostic rebuild and physical retest. The reproduced defects are not
+yet confirmed as the sole cause of the observed silence.

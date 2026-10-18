@@ -12,6 +12,7 @@
       "bundleIdentifier": "org.beacon.community.dev",
       "infoPlist": {
         "NSBluetoothAlwaysUsageDescription": "Beacon connects to nearby participating phones to relay help requests when internet is unavailable.",
+        "NSMicrophoneUsageDescription": "Use your microphone during a Bluetooth call you start or accept in Beacon.",
         "NSLocationWhenInUseUsageDescription": "Include an optional location report with your request so a volunteer can find you.",
         "UIBackgroundModes": [
           "bluetooth-central",

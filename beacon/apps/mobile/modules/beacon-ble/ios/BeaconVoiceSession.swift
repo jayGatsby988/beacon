@@ -45,6 +45,9 @@ final class BeaconVoiceSession: NSObject, StreamDelegate {
   private var sentFrames = 0
   private var receivedFrames = 0
   private var droppedFrames = 0
+  private var sentBytes = 0
+  private var receivedBytes = 0
+  private var preActiveFrames = 0
 
   init(callId: String, peerId: String, peer: CBPeer, key: Data, initiator: Bool,
        emit: @escaping ([String: Any]) -> Void, onEnd: @escaping (BeaconVoiceSession) -> Void) throws {
@@ -72,6 +75,7 @@ final class BeaconVoiceSession: NSObject, StreamDelegate {
       channel.inputStream.close(); channel.outputStream.close(); return
     }
     self.channel = channel; attachedAt = ProcessInfo.processInfo.systemUptime
+    beaconVoiceTrace("stream attached role=\(initiator ? "opener" : "listener")")
     for stream in [channel.inputStream as Stream, channel.outputStream as Stream] {
       stream.delegate = self; stream.schedule(in: .main, forMode: .common); stream.open()
     }
@@ -93,6 +97,7 @@ final class BeaconVoiceSession: NSObject, StreamDelegate {
       let count = input.read(&bytes, maxLength: bytes.count)
       if count < 0 { finish("stream_read_failed", failed: true); return }
       if count == 0 { return }
+      receivedBytes += count
       readBuffer.append(contentsOf: bytes.prefix(count))
       guard readBuffer.count <= 1024 else { finish("stream_frame_limit", failed: true); return }
       while readBuffer.count >= 2 {
@@ -111,6 +116,7 @@ final class BeaconVoiceSession: NSObject, StreamDelegate {
     do {
       if !receivedHello {
         try crypto.acceptHello(record); receivedHello = true
+        beaconVoiceTrace("stream peer challenge authenticated")
         enqueue(try crypto.seal(Data([1])), audio: false)
         return
       }
@@ -120,10 +126,11 @@ final class BeaconVoiceSession: NSObject, StreamDelegate {
       switch kind {
       case 1:
         guard !ready, plaintext.count == 1 else { throw BeaconVoiceError.invalid }
-        ready = true; emit(["callId": callId, "state": "ready"])
+        ready = true; beaconVoiceTrace("stream ready authenticated"); emit(["callId": callId, "state": "ready"])
       case 2:
         guard ready, plaintext.count > 1, plaintext.count <= 257 else { throw BeaconVoiceError.invalid }
         if active { receivedFrames += 1; audio?.play(Data(plaintext.dropFirst())) }
+        else { preActiveFrames += 1 }
       case 3:
         guard ready, plaintext.count == 1 else { throw BeaconVoiceError.invalid }
         finish("remote_ended", failed: false)
@@ -160,6 +167,7 @@ final class BeaconVoiceSession: NSObject, StreamDelegate {
       }
       if written < 0 { finish("stream_write_failed", failed: true); return }
       if written == 0 { return }
+      sentBytes += written
       job.offset += written
       if job.offset == job.data.count { writes.removeFirst(); if job.audio { sentFrames += 1 } }
     }
@@ -177,6 +185,7 @@ final class BeaconVoiceSession: NSObject, StreamDelegate {
     read(); pump()
     if ready && now - lastPing > 2 {
       lastPing = now
+      traceStatistics("live")
       do { enqueue(try crypto.seal(Data([4])), audio: false) }
       catch { finish("voice_encryption_failed", failed: true) }
     }
@@ -188,6 +197,7 @@ final class BeaconVoiceSession: NSObject, StreamDelegate {
     }
     startPromise = promise
     let session = AVAudioSession.sharedInstance()
+    beaconVoiceTrace("audio start permission=\(session.recordPermission.rawValue)")
     if session.recordPermission == .undetermined {
       session.requestRecordPermission { [weak self] allowed in DispatchQueue.main.async { self?.beginAudio(allowed) } }
     } else { beginAudio(session.recordPermission == .granted) }
@@ -207,7 +217,11 @@ final class BeaconVoiceSession: NSObject, StreamDelegate {
       try engine.start(speaker: speaker); engine.setMuted(muted)
       active = true; startPromise = nil; promise.resolve(nil)
       emit(["callId": callId, "state": "active"])
-    } catch { finish("audio_start_failed", failed: true) }
+    } catch {
+      let nativeError = error as NSError
+      beaconVoiceTrace("audio start failed domain=\(nativeError.domain) code=\(nativeError.code)")
+      finish("audio_start_failed", failed: true)
+    }
   }
 
   func setMuted(_ value: Bool) {
@@ -219,6 +233,7 @@ final class BeaconVoiceSession: NSObject, StreamDelegate {
   func finish(_ reason: String, failed: Bool) {
     guard !closed, !finishing else { return }
     finishing = true
+    traceStatistics("end reason=\(reason)")
     // Best-effort encrypted end marker. Stream closure remains authoritative.
     if ready, reason != "remote_ended", let record = try? crypto.seal(Data([3])) {
       writes.removeAll(where: { $0.offset == 0 }); writes.append(BeaconVoiceWrite(record, audio: false)); pump()
@@ -238,5 +253,11 @@ final class BeaconVoiceSession: NSObject, StreamDelegate {
     emit(["callId": callId, "state": failed ? "failed" : "ended", "reason": reason,
           "stats": ["sentFrames": sentFrames, "receivedFrames": receivedFrames, "droppedFrames": droppedFrames]])
     onEnd(self)
+  }
+
+  private func traceStatistics(_ stage: String) {
+    let stats = audio?.statistics() ?? [:]
+    let values = stats.keys.sorted().map { "\($0)=\(stats[$0]!)" }.joined(separator: " ")
+    beaconVoiceTrace("\(stage) active=\(active) txFrames=\(sentFrames) rxFrames=\(receivedFrames) txBytes=\(sentBytes) rxBytes=\(receivedBytes) drops=\(droppedFrames) preActive=\(preActiveFrames) queued=\(writes.count) \(values)")
   }
 }

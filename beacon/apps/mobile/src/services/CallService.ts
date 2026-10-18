@@ -119,6 +119,9 @@ function callReason(
     )
   )
     return VOICE_REASONS.microphone_unavailable;
+  const pendingChannel =
+    "Bluetooth is still closing the last call. Restart Nearby in Settings if this continues.";
+  if (value.includes(pendingChannel)) return pendingChannel;
   // Native platform messages may contain internal details; only expose app-owned sentences.
   if (
     ["Bluetooth calls are unavailable.", "Invalid voice channel"].includes(

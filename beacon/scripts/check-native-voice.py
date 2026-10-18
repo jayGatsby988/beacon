@@ -31,4 +31,8 @@ with tempfile.TemporaryDirectory(prefix='beacon-voice-check-') as temporary:
     subprocess.run(['xcrun', 'swiftc', str(native / 'BeaconVoiceCrypto.swift'),
                     str(native / 'tests/BeaconVoiceCryptoTests.swift'), '-o', str(crypto_test)], check=True)
     subprocess.run([str(crypto_test)], check=True)
+    pcm_test = area / 'pcm-test'
+    subprocess.run(['xcrun', 'swiftc', str(native / 'BeaconVoicePCM.swift'),
+                    str(native / 'tests/BeaconVoicePCMTests.swift'), '-o', str(pcm_test)], check=True)
+    subprocess.run([str(pcm_test)], check=True)
 print('Native voice checks passed; temporary executables removed. Radio/audio hardware checks remain separate.')
