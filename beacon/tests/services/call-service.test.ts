@@ -492,6 +492,23 @@ test("stale A controls cannot accept, decline, end, dismiss or change a newer B 
   f.service.dismiss(b.callId);
   assert.equal(f.service.snapshot, null);
 });
+test("capture watchdog failures end active calls with readable retry guidance", async () => {
+  for (const [reason, expected] of [
+    ["audio_capture_stalled", "The microphone is not providing audio. Try calling again."],
+    ["audio_engine_stopped", "Audio stopped on this phone. Try calling again."],
+  ]) {
+    const f = fixture();
+    await f.service.start(f.remote.nodeId);
+    const id = f.service.snapshot!.callId;
+    await f.service.receive("c:remote", f.wire({ kind: "accept", version: 1, callId: id, psm: 133 }));
+    await f.service.onVoice({ callId: id, state: "ready" });
+    assert.equal(f.service.snapshot?.state, "active");
+    await f.service.onVoice({ callId: id, state: "failed", reason });
+    assert.equal(f.service.snapshot?.state, "ended");
+    assert.equal(f.service.snapshot?.reason, expected);
+    assert.ok(f.native.stopped.includes(id));
+  }
+});
 test("native failures use readable messages and toggle failures stay visible without ending audio", async () => {
   const f = fixture();
   await f.service.start(f.remote.nodeId);

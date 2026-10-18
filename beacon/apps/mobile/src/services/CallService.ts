@@ -100,6 +100,8 @@ const VOICE_REASONS: Record<string, string> = {
   stream_write_failed: "Bluetooth voice connection failed.",
   audio_start_failed: "Could not start the microphone and audio output.",
   audio_codec_failed: "Could not process call audio.",
+  audio_capture_stalled: "The microphone is not providing audio. Try calling again.",
+  audio_engine_stopped: "Audio stopped on this phone. Try calling again.",
 };
 function callReason(
   error: unknown,

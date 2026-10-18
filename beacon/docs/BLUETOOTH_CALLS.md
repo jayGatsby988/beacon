@@ -54,14 +54,29 @@ when the call ends. Stop is scoped to the call ID, so stale cleanup cannot end a
 new call. Native audio and ciphertext are held in memory and are not recorded to
 disk. Diagnostic call events contain state/reason codes and frame counts.
 
-Operational diagnostics write directly to stdout: connection/authentication
+Operational diagnostics write asynchronously to stdout and a bounded cache: connection/authentication
 stages, hardware tap size/sample rate/channel count, generic route type, native
 error domain/code, and a bounded counter summary every two seconds while ready.
 The summary distinguishes captured, converted, encoded, transmitted, received,
-decoded, and played frames, nonzero-buffer counts, and dropped blocks. Logs do
-not contain audio samples, call or peer identities, keys, or message content;
-the app does not persist these logs. A developer may capture stdout separately
-with the device console during a physical check.
+decoded, and played frames, nonzero-buffer counts, and dropped blocks. Engine
+running/player playing state and configuration, route, interruption, and media
+service reset events help identify an engine that stopped after startup. Logs
+do not contain audio samples, call or peer identities, keys, location, or message
+content. No diagnostic changes restart or otherwise change audio behavior.
+
+The app retains UTC-timestamped metadata across relaunch in
+`Library/Caches/beacon-voice-diagnostics.log` and
+`Library/Caches/beacon-voice-diagnostics.previous.log`. Each file is at most
+64 KiB, totaling at most 128 KiB. Files expire 24 hours after their oldest entry,
+checked on the next log write; iOS may evict cache files earlier. A serial utility
+queue performs all console/file I/O, with at most 32 pending entries and a
+4 KiB per-entry bound; excess diagnostics are discarded rather than delaying
+audio. The native checker exercises the actual store's rotation, relaunch
+retention, expiry, line sanitation, and corrupt-cache recovery. To inspect a
+physical test later, copy only these two files from the app data container using
+Xcode Devices or `devicectl device copy from --domain-type appDataContainer`
+with the app bundle identifier and the relative paths above. No microphone or
+Bluetooth access is needed to run the host diagnostics test.
 
 CoreBluetooth does not expose cancellation of an individual pending channel-open
 operation or an unpublished listener whose PSM has not yet returned. If its
@@ -125,3 +140,27 @@ the complete native check script, including all 22 converter/framing cases,
 passed. Actual hardware tap sizes and successful two-way speech still require
 the diagnostic rebuild and physical retest. The reproduced defects are not
 yet confirmed as the sole cause of the observed silence.
+
+A later paired physical test captured authenticated, ready streams on both
+phones, successful audio-engine/player starts at 48 kHz mono, and increasing
+keepalive bytes, but zero microphone tap callbacks and zero transmitted or
+received audio frames. This isolates that observed failure before conversion,
+encoding, or audio transport. Speaker toggles did not start capture.
+
+The next native revision explicitly connects the input to an `AVAudioSinkNode`
+whose receiver does no work, retains the input recording tap, and connects the
+16 kHz playback player through the mixer to an output using the same 48 kHz mono
+I/O client format as input. There is no microphone-to-speaker connection. Apple
+documents a recording tap as sufficient in principle, so the earlier missing
+explicit connection alone is not established as the cause. The graph change
+uses the input sink supported for VoIP and the explicit matching I/O setup in
+Apple's [voice-processing sample](https://developer.apple.com/documentation/avfaudio/using-voice-processing)
+and [sink documentation](https://developer.apple.com/documentation/avfaudio/avaudiosinknode).
+A main-run-loop watchdog ends the call after three seconds without tap progress,
+distinguishing a stopped engine from missing capture; mute does not suppress
+tap progress. It does not restart audio automatically.
+
+The revised audio source passed an actual arm64 iOS 15.1-targeted Swift typecheck.
+Persistent diagnostics regression and the complete native host codec/crypto/PCM
+checks passed. Successful speech on the revised graph still requires a paired
+physical retest; these checks do not establish that audio now works on hardware.

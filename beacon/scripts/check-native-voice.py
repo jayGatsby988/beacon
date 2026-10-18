@@ -23,6 +23,17 @@ subprocess.run(['xcrun', 'clang', '-fsyntax-only', '-fobjc-arc', '-target', 'arm
                 '-isysroot', sdk, '-I', str(opus / 'include'), str(native / 'BeaconOpusCodec.m')], check=True)
 with tempfile.TemporaryDirectory(prefix='beacon-voice-check-') as temporary:
     area = Path(temporary)
+    # Compile the exact Foundation-only production store, excluding the iOS
+    # audio/session portion that cannot run in a host command-line process.
+    audio_source = (native / 'BeaconVoiceAudio.swift').read_text()
+    marker = 'private final class BeaconVoiceDiagnostics'
+    assert audio_source.count(marker) == 1
+    diagnostics_source = area / 'BeaconVoiceTraceStore.swift'
+    diagnostics_source.write_text(audio_source.split(marker)[0])
+    diagnostics_test = area / 'diagnostics-test'
+    subprocess.run(['xcrun', 'swiftc', str(diagnostics_source),
+                    str(native / 'tests/BeaconVoiceDiagnosticsTests.swift'), '-o', str(diagnostics_test)], check=True)
+    subprocess.run([str(diagnostics_test), str(area / 'diagnostic-cache')], check=True)
     codec_test = area / 'opus-test'
     subprocess.run(['xcrun', 'clang', '-O2', '-DHAVE_CONFIG_H=1', *includes, *sources,
                     str(native / 'tests/BeaconOpusTest.c'), '-o', str(codec_test)], check=True)

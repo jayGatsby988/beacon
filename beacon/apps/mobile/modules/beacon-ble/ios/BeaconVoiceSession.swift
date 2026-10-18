@@ -212,7 +212,7 @@ final class BeaconVoiceSession: NSObject, StreamDelegate {
       do { self.enqueue(try self.crypto.seal(Data([2]) + packet), audio: true) }
       catch { self.finish("voice_encryption_failed", failed: true) }
     }
-    engine.onFailure = { [weak self] in self?.finish("audio_codec_failed", failed: true) }
+    engine.onFailure = { [weak self] reason in self?.finish(reason, failed: true) }
     do {
       try engine.start(speaker: speaker); engine.setMuted(muted)
       active = true; startPromise = nil; promise.resolve(nil)
