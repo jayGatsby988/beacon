@@ -1,0 +1,47 @@
+{
+  "recordedAt": "2026-10-18T16:21:52.742250+00:00",
+  "changes": [
+    "Direct Call button in chat, no conversation overflow menu or experimental labels",
+    "Fixed map viewport with direct request focus and neutral past-request markers",
+    "Optional SOS message; native-driver press and navigation motion respecting Reduce Motion",
+    "Stale retrying Bluetooth warnings clear after authenticated reconnect; other errors remain visible"
+  ],
+  "automated": {
+    "tests": 208,
+    "passed": 207,
+    "skipped": 1,
+    "failed": 0,
+    "skipReason": "Timescale/Postgres integration environment not configured",
+    "typecheck": "passed",
+    "lint": "passed",
+    "codesign": "device and simulator packages verified"
+  },
+  "simulatorChecks": [
+    "Bundled UW offline geometry and own location render",
+    "Location refresh button updates report age",
+    "Map options expand without shifting the page",
+    "Optional SOS message saves with one SOS tap",
+    "Request map action focuses the correct reported coordinates",
+    "Completing a local request persists Completed with pending delivery",
+    "Completed request map shows past status"
+  ],
+  "physicalInstall": {
+    "Darshan": "Latest build installed and launched; running process confirmed",
+    "Vaibhav": "Latest build installed and launched; running process confirmed",
+    "Pravanram": "Call/map/motion update installed and launched; disconnected before final stale-warning and header-copy patch"
+  },
+  "notVerifiedThisRun": [
+    "Two-phone BLE relay and audible calling: user paused live recording",
+    "Map pinch/drag physical gesture check: computer-use drag API returned noWindowsAvailable"
+  ],
+  "deviceBundleSha256": "0187e9e6618828a363a06162b1f8d535dd88e9ecfe438afc64bb5af65c9dac05",
+  "videoAssets": {
+    "folder": "Beacon Demo Kit on Desktop",
+    "ready": [
+      "12s illustrative earthquake scenario",
+      "28s illustrative relay and queue animation",
+      "10s closing animation"
+    ],
+    "liveFootage": "Not recorded; paused by user"
+  }
+}

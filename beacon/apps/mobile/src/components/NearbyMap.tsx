@@ -78,7 +78,7 @@ type MapMarker = {
   id: string;
   title: string;
   label: string;
-  kind: "you" | "person" | "request";
+  kind: "you" | "person" | "request" | "history";
   longitude: number;
   latitude: number;
   selected: boolean;
@@ -90,12 +90,13 @@ type MapSurfaceProps = {
   camera: RefObject<CameraRef | null>;
   longitude: number;
   latitude: number;
-  hasLocations: boolean;
+  zoomLevel: number;
   markers: MapMarker[];
   onLoading: () => void;
   onReady: () => void;
   onFailed: () => void;
   onRegionChange: (region: { geometry: { coordinates: number[] } }) => void;
+  onRegionWillChange: (region: { properties?: { isUserInteraction?: boolean } }) => void;
   onSelect: (kind: MapMarker["kind"], id: string) => void;
 };
 
@@ -103,13 +104,13 @@ type MapSurfaceProps = {
 // subtree. Only marker appearance/coordinates, selection or map configuration
 // should update it; capturedAt and accuracy belong to the surrounding UI.
 const MapSurface = memo(function MapSurface({
-  mapKey, mapStyle, bundled, camera, longitude, latitude, hasLocations,
-  markers, onLoading, onReady, onFailed, onRegionChange, onSelect,
+  mapKey, mapStyle, bundled, camera, longitude, latitude, zoomLevel,
+  markers, onLoading, onReady, onFailed, onRegionChange, onRegionWillChange, onSelect,
 }: MapSurfaceProps) {
   const defaultSettings = useMemo(() => ({
     centerCoordinate: [longitude, latitude],
-    zoomLevel: hasLocations ? 16 : 14.7,
-  }), [longitude, latitude, hasLocations]);
+    zoomLevel,
+  }), [longitude, latitude, zoomLevel]);
   return (
     <MapLibre.MapView
       key={mapKey}
@@ -118,6 +119,7 @@ const MapSurface = memo(function MapSurface({
       onWillStartLoadingMap={onLoading}
       onDidFinishLoadingMap={onReady}
       onRegionDidChange={onRegionChange}
+      onRegionWillChange={onRegionWillChange}
       onDidFailLoadingMap={onFailed}
       logoEnabled={false}
       attributionEnabled={!bundled}
@@ -125,6 +127,8 @@ const MapSurface = memo(function MapSurface({
       compassEnabled={false}
       pitchEnabled={false}
       rotateEnabled={false}
+      scrollEnabled
+      zoomEnabled
     >
       <MapLibre.Camera ref={camera} defaultSettings={defaultSettings} />
       {markers.map((marker) => (
@@ -139,10 +143,10 @@ const MapSurface = memo(function MapSurface({
           {marker.kind === "you" ? (
             <View collapsable={false} style={s.youMarker}><View style={s.youDot} /><Text style={s.youText}>You</Text></View>
           ) : (
-            <View collapsable={false} style={marker.kind === "request"
-              ? [s.sosMarker, marker.selected && s.selectedSosMarker]
+            <View collapsable={false} style={marker.kind === "request" || marker.kind === "history"
+              ? [s.sosMarker, marker.kind === "history" && s.historyMarker, marker.selected && s.selectedSosMarker]
               : [s.personMarker, marker.selected && s.selectedMarker]}>
-              <Text maxFontSizeMultiplier={1.4} style={marker.kind === "request" ? s.sosText : s.initial}>{marker.label}</Text>
+              <Text maxFontSizeMultiplier={1.4} style={marker.kind === "request" || marker.kind === "history" ? s.sosText : s.initial}>{marker.label}</Text>
             </View>
           )}
         </MapLibre.PointAnnotation>
@@ -197,8 +201,11 @@ function fitLocations(
 export default function NearbyMap({
   ownLocation,
   focusRevision,
+  focusRequestId,
+  requestFocusRevision = 0,
   pins,
   requests = EMPTY_REQUESTS,
+  connectedCount,
   internet,
   map,
   onLocate,
@@ -209,6 +216,8 @@ export default function NearbyMap({
 }: {
   ownLocation: LocationReport;
   focusRevision: number;
+  focusRequestId?: string;
+  requestFocusRevision?: number;
   pins: NearbyPin[];
   requests?: RequestView[];
   connectedCount: number;
@@ -218,7 +227,7 @@ export default function NearbyMap({
   onSaveArea?: () => Promise<void>;
   onCancelSave?: () => Promise<void>;
   now: number;
-  height: number;
+  height?: number;
 }) {
   const camera = useRef<CameraRef>(null);
   const [showOnline, setShowOnline] = useState(false);
@@ -236,12 +245,22 @@ export default function NearbyMap({
   const centered = useRef(false);
   const fittedPeers = useRef(false);
   const fittedFocusRevision = useRef(-1);
+  const userMoved = useRef(false);
+  const viewport = useRef<{ longitude: number; latitude: number; zoomLevel: number } | undefined>(undefined);
+  const handledRequestFocus = useRef<string | undefined>(undefined);
   const online = showOnline && internet === true && !onlineFailed;
-  const saved =
+  const savedAvailable =
     (map.status === "ready" || map.savedAvailable === true) &&
     !map.bundled &&
     !!map.styleUrl &&
     !savedFailed;
+  const targetLocation = requests.find((request) => request.id === focusRequestId)?.location ?? ownLocation;
+  const inside = (point: LocationReport, area: readonly number[]) =>
+    Number.isFinite(point.longitude) && Number.isFinite(point.latitude) &&
+    point.longitude! >= area[0] && point.longitude! <= area[2] &&
+    point.latitude! >= area[1] && point.latitude! <= area[3];
+  // A saved trip elsewhere must not hide the streets bundled for UW.
+  const saved = savedAvailable && !(map.bounds && inside(targetLocation, CAMPUS_BOUNDS) && !inside(targetLocation, map.bounds));
   const bundled = !online && !saved;
   const bounds = saved && map.bounds ? map.bounds : CAMPUS_BOUNDS;
   const inCoverage = (coordinate: number[]) =>
@@ -264,14 +283,15 @@ export default function NearbyMap({
   const selected = validPins.find((pin) => pin.nodeId === selectedId);
   // SOS coordinates are the location attached to a request, never a live peer fix.
   const requestPins = useMemo(() => requests.filter((request) =>
-    (request.status === "active" || request.status === "accepted") &&
+    (request.status === "active" || request.status === "accepted" || request.id === focusRequestId) &&
     request.location.source !== "unavailable" &&
     Number.isFinite(request.location.latitude) &&
     Number.isFinite(request.location.longitude) &&
     Math.abs(request.location.latitude!) <= 90 &&
     Math.abs(request.location.longitude!) <= 180,
-  ), [requests]);
+  ), [requests, focusRequestId]);
   const selectedRequest = requestPins.find((request) => request.id === selectedRequestId);
+  const activeRequestCount = requestPins.filter((request) => request.status === "active" || request.status === "accepted").length;
   const coordinates = [
     ...(own ? [[own.longitude, own.latitude]] : []),
     ...validPins.map((pin) => [pin.location.longitude, pin.location.latitude]),
@@ -280,6 +300,13 @@ export default function NearbyMap({
   const outsideCoverage =
     !inCoverage(viewCenter) ||
     coordinates.some((coordinate) => !inCoverage(coordinate));
+  useEffect(() => {
+    setActionError(undefined);
+    if (!focusRequestId) {
+      handledRequestFocus.current = undefined;
+      setSelectedRequestId(undefined);
+    }
+  }, [focusRequestId, requestFocusRevision]);
   useEffect(() => {
     setSavedFailed(false);
     setOfflineFailed(false);
@@ -298,7 +325,7 @@ export default function NearbyMap({
     return () => clearTimeout(timeout);
   }, [online, saved, ready, offlineFailed]);
   useEffect(() => {
-    if (!ready || !coordinates.length) return;
+    if (!ready || !coordinates.length || userMoved.current || focusRequestId) return;
     const focusNeedsFit = fittedFocusRevision.current !== focusRevision;
     if (
       !focusNeedsFit &&
@@ -310,7 +337,25 @@ export default function NearbyMap({
     centered.current = true;
     fittedFocusRevision.current = focusRevision;
     if (validPins.length) fittedPeers.current = true;
-  }, [ready, coordinates, areaCenter, validPins.length, focusRevision]);
+  }, [ready, coordinates, areaCenter, validPins.length, focusRevision, focusRequestId]);
+  useEffect(() => {
+    if (!ready || !focusRequestId) return;
+    const intent = `${focusRequestId}:${requestFocusRevision}`;
+    if (handledRequestFocus.current === intent) return;
+    handledRequestFocus.current = intent;
+    const request = requestPins.find((item) => item.id === focusRequestId);
+    if (!request) {
+      setSelectedId(undefined);
+      setSelectedRequestId(undefined);
+      setActionError("This request has no available location in this audience.");
+      return;
+    }
+    setSelectedId(undefined);
+    setSelectedRequestId(request.id);
+    setActionError(undefined);
+    userMoved.current = true;
+    fitLocations(camera.current, [[request.location.longitude!, request.location.latitude!]], areaCenter);
+  }, [ready, focusRequestId, requestFocusRevision, requestPins, areaCenter]);
   const recenter = async () => {
     setLocating(true);
     setActionError(undefined);
@@ -320,12 +365,13 @@ export default function NearbyMap({
       const points = pins
         .filter((pin) => freshLocation(pin.location, currentTime))
         .map((pin) => [pin.location.longitude, pin.location.latitude]);
+      points.push(...requestPins.map((request) => [request.location.longitude!, request.location.latitude!]));
       if (report.source === "device" && freshLocation(report, currentTime)) {
         points.unshift([report.longitude, report.latitude]);
       } else {
         setActionError("Your location is unavailable. Try again.");
       }
-      fitLocations(camera.current, points, areaCenter);
+      if (points.length) fitLocations(camera.current, points, areaCenter);
       centered.current = true;
       if (points.length > 1) fittedPeers.current = true;
     } catch (error) {
@@ -350,23 +396,39 @@ export default function NearbyMap({
     else if (saved) setSavedFailed(true);
     else setOfflineFailed(true);
   }, [online, saved]);
-  const onRegionChange = useCallback((region: { geometry: { coordinates: number[] } }) => {
+  const onRegionWillChange = useCallback((region: { properties?: { isUserInteraction?: boolean } }) => {
+    if (region.properties?.isUserInteraction) {
+      userMoved.current = true;
+      setShowMapOptions(false);
+    }
+  }, []);
+  const onRegionChange = useCallback((region: { geometry: { coordinates: number[] }; properties?: { isUserInteraction?: boolean; zoomLevel?: number } }) => {
+    if (region.properties?.isUserInteraction) userMoved.current = true;
     const next = region.geometry.coordinates;
+    if (!Number.isFinite(next[0]) || !Number.isFinite(next[1])) return;
+    viewport.current = { longitude: next[0], latitude: next[1], zoomLevel: region.properties?.zoomLevel ?? viewport.current?.zoomLevel ?? 16 };
     setViewCenter((previous) => previous[0] === next[0] && previous[1] === next[1] ? previous : next);
   }, []);
   const onSelect = useCallback((kind: MapMarker["kind"], id: string) => {
     setSelectedId(kind === "person" ? id.slice("person-".length) : undefined);
-    setSelectedRequestId(kind === "request" ? id.slice("request-".length) : undefined);
+    setSelectedRequestId(kind === "request" || kind === "history" ? id.slice("request-".length) : undefined);
   }, []);
   const markers: MapMarker[] = [
     ...(own ? [{ id: "your-location", title: "Your reported location", label: "You", kind: "you" as const, longitude: own.longitude, latitude: own.latitude, selected: false }] : []),
     ...validPins.map((pin) => ({ id: `person-${pin.nodeId}`, title: pin.name, label: pin.name.trim().slice(0, 2).toUpperCase() || "?", kind: "person" as const, longitude: pin.location.longitude, latitude: pin.location.latitude, selected: pin.nodeId === selectedId })),
-    ...requestPins.map((request) => ({ id: `request-${request.id}`, title: `${request.name} · SOS reported location`, label: "SOS", kind: "request" as const, longitude: request.location.longitude!, latitude: request.location.latitude!, selected: request.id === selectedRequestId })),
+    ...requestPins.map((request) => ({ id: `request-${request.id}`, title: `${request.name} · ${request.status === "active" || request.status === "accepted" ? "SOS" : request.status} reported location`, label: request.status === "active" || request.status === "accepted" ? "SOS" : "Past", kind: request.status === "active" || request.status === "accepted" ? "request" as const : "history" as const, longitude: request.location.longitude!, latitude: request.location.latitude!, selected: request.id === selectedRequestId })),
   ];
+  const mapKey = online ? "online" : saved ? `saved-${map.styleUrl}-${map.updatedAt ?? 0}` : "bundled";
   const initialCenter = coordinates[0] ?? areaCenter;
+  // Map sources may remount during a fallback. Preserve the last camera then;
+  // routine pan/GPS updates never send a fresh initial camera to native.
+  const mapStart = useRef({ key: mapKey, longitude: initialCenter[0], latitude: initialCenter[1], zoomLevel: coordinates.length ? 16 : 14.7 });
+  if (mapStart.current.key !== mapKey) {
+    mapStart.current = { ...mapStart.current, ...viewport.current, key: mapKey };
+  }
   return (
-    <View style={s.frame}>
-      <View style={{ height }}>
+    <View style={[s.frame, height == null && s.fill]}>
+      <View style={height == null ? s.viewport : { height }}>
         {offlineFailed && !online ? (
           <View style={s.unavailable}>
             <MapPin size={30} color={c.secondary} />
@@ -377,30 +439,28 @@ export default function NearbyMap({
           </View>
         ) : (
           <MapSurface
-            mapKey={online ? "online" : saved ? `saved-${map.styleUrl}-${map.updatedAt ?? 0}` : "bundled"}
+            mapKey={mapKey}
             mapStyle={mapStyle}
             bundled={bundled}
             camera={camera}
-            longitude={initialCenter[0]}
-            latitude={initialCenter[1]}
-            hasLocations={coordinates.length > 0}
+            longitude={mapStart.current.longitude}
+            latitude={mapStart.current.latitude}
+            zoomLevel={mapStart.current.zoomLevel}
             markers={markers}
             onLoading={onLoading}
             onReady={onReady}
             onFailed={onFailed}
             onRegionChange={onRegionChange}
+            onRegionWillChange={onRegionWillChange}
             onSelect={onSelect}
           />
         )}
-        {!ready && !offlineFailed && (
+        {!offlineFailed && (
           <View pointerEvents="none" style={s.mapTag}>
-            <ActivityIndicator size="small" color={c.text} />
-            <Text style={s.tagText}>Loading map</Text>
-          </View>
-        )}
-        {ready && !online && outsideCoverage && (
-          <View pointerEvents="none" style={s.mapTag}>
-            <Text style={s.tagText}>Streets not saved here</Text>
+            {!ready && <ActivityIndicator size="small" color={c.text} />}
+            <Text style={s.tagText}>
+              {!ready ? "Loading map" : !online && outsideCoverage ? "Streets not saved here" : online ? "Online map" : saved ? "Offline · saved area" : "Offline · UW"}
+            </Text>
           </View>
         )}
         <Pressable
@@ -425,6 +485,7 @@ export default function NearbyMap({
               setOnlineFailed(false);
               setOfflineFailed(false);
               setReady(false);
+              setShowMapOptions(false);
             }}
             style={[
               s.mapAction,
@@ -432,7 +493,7 @@ export default function NearbyMap({
             ]}
           >
             <Text style={s.actionText}>
-              {showOnline ? "Use offline map" : "View online"}
+              {showOnline ? "Use offline map" : "Load streets online"}
             </Text>
           </Pressable>
           {(onSaveArea || downloading) && (
@@ -453,6 +514,7 @@ export default function NearbyMap({
                   );
                 } else {
                   setSaving(true);
+                  setShowMapOptions(false);
                   void onSaveArea?.()
                     .then(() => setShowOnline(false))
                     .catch((error: unknown) =>
@@ -471,7 +533,7 @@ export default function NearbyMap({
               ]}
             >
               <Text style={s.actionText}>
-                {downloading ? "Cancel save" : "Save my area"}
+                {downloading ? `Saving ${Math.round(map.progress * 100)}% · Cancel` : "Save near me"}
               </Text>
             </Pressable>
           )}
@@ -480,6 +542,7 @@ export default function NearbyMap({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Find my location and show nearby people"
+          accessibilityHint="Centers the map on you and available nearby locations. Pinch the map to zoom."
           accessibilityState={{ busy: locating, disabled: !ready || locating }}
           disabled={!ready || locating}
           onPress={() => void recenter()}
@@ -506,90 +569,53 @@ export default function NearbyMap({
           </Pressable>
         )}
       </View>
-      <View style={s.mapFooter}>
-        {(requestPins.length > 0 || validPins.length > 0) && <View style={s.legend}>
-          {requestPins.length > 0 && <View style={s.legendItem}><View style={s.legendSos} /><Text style={s.caption}>{requestPins.length} SOS</Text></View>}
-          {validPins.length > 0 && <View style={s.legendItem}><View style={s.legendPerson} /><Text style={s.caption}>{validPins.length} sharing location</Text></View>}
-        </View>}
-        <Text style={s.caption}>
-          {online
-            ? "Online map"
-            : outsideCoverage
-              ? saved
-                ? "Outside saved area"
-                : "Outside UW area"
-              : saved
-                ? "Offline · saved area"
-                : "Offline · UW area"}
-        </Text>
-        {own && <Text style={s.caption}>Your location · {locationLabel(own, now)}</Text>}
-        {outsideCoverage && !online && internet === true && (
-          <Pressable accessibilityRole="button" onPress={() => { setOnlineFailed(false); setOfflineFailed(false); setShowOnline(true); setReady(false); }} style={s.recoveryAction}>
-            <Text style={s.actionText}>Load streets online</Text>
-          </Pressable>
-        )}
-        {(actionError || map.error) && (
-          <Text accessibilityLiveRegion="polite" style={s.caption}>
-            {actionError || map.error}
-          </Text>
-        )}
-        {onlineFailed && showOnline && (
-          <Text style={s.caption}>
-            Online map unavailable. Showing offline map.
-          </Text>
-        )}
-      </View>
-      {selectedRequest && (
+      {selectedRequest ? (
         <View style={s.selection}>
-          <View style={s.selectionTop}>
-            <View style={{ flex: 1, gap: 4 }}>
-              <Text style={s.requestEyebrow}>ACTIVE SOS · REPORTED LOCATION</Text>
-              <Text style={s.name}>{selectedRequest.name}</Text>
-              <Text style={s.caption}>
-                {Number.isFinite(selectedRequest.location.capturedAt)
-                  ? `Location captured ${locationLabel({ ...selectedRequest.location, latitude: selectedRequest.location.latitude!, longitude: selectedRequest.location.longitude!, capturedAt: selectedRequest.location.capturedAt! }, now)}`
-                  : "Location capture time unavailable"}
-              </Text>
-              <Text style={s.caption}>{selectedRequest.location.latitude!.toFixed(5)}, {selectedRequest.location.longitude!.toFixed(5)}</Text>
-              {selectedRequest.note ? <Text numberOfLines={2} style={s.caption}>{selectedRequest.note}</Text> : null}
-            </View>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close request preview" onPress={() => setSelectedRequestId(undefined)} style={s.close}>
-              <X color={c.secondary} size={20} />
-            </Pressable>
+          <View style={s.selectionCopy}>
+            <Text numberOfLines={1} style={s.name}>{selectedRequest.name}</Text>
+            <Text numberOfLines={2} style={s.caption}>
+              {selectedRequest.status !== "active" && selectedRequest.status !== "accepted" ? `${selectedRequest.status.charAt(0).toUpperCase()}${selectedRequest.status.slice(1)} · ` : ""}
+              {Number.isFinite(selectedRequest.location.capturedAt)
+                ? `Reported ${locationLabel({ ...selectedRequest.location, latitude: selectedRequest.location.latitude!, longitude: selectedRequest.location.longitude!, capturedAt: selectedRequest.location.capturedAt! }, now)}`
+                : "Reported location · time unknown"}
+            </Text>
           </View>
-          <Pressable accessibilityRole="button" onPress={() => router.push(`/request/${selectedRequest.id}`)} style={({ pressed }) => [s.message, pressed && s.pressed]}>
-            <Text style={s.messageText}>Open request</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Open SOS from ${selectedRequest.name}`} onPress={() => router.push(`/request/${selectedRequest.id}`)} style={({ pressed }) => [s.message, pressed && s.pressed]}>
+            <Text style={s.messageText}>View SOS</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close request preview" onPress={() => setSelectedRequestId(undefined)} style={s.close}>
+            <X color={c.secondary} size={20} />
           </Pressable>
         </View>
-      )}
-      {selected && (
+      ) : selected ? (
         <View style={s.selection}>
-          <View style={s.selectionTop}>
-            <View style={{ flex: 1, gap: 4 }}>
-              <Text style={s.name}>{selected.name}</Text>
-              <Text style={s.caption}>
-                Reported {locationLabel(selected.location, now)}
-              </Text>
-            </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Close location details"
-              onPress={() => setSelectedId(undefined)}
-              style={s.close}
-            >
-              <X color={c.secondary} size={20} />
-            </Pressable>
+          <View style={s.selectionCopy}>
+            <Text numberOfLines={1} style={s.name}>{selected.name}</Text>
+            <Text numberOfLines={2} style={s.caption}>Reported {locationLabel(selected.location, now)}</Text>
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Message ${selected.name}`}
-            onPress={() => router.push(`/chat/${selected.nodeId}`)}
-            style={({ pressed }) => [s.message, pressed && s.pressed]}
-          >
-            <MessageCircle color={c.background} size={19} />
+          <Pressable accessibilityRole="button" accessibilityLabel={`Message ${selected.name}`} onPress={() => router.push(`/chat/${selected.nodeId}`)} style={({ pressed }) => [s.message, pressed && s.pressed]}>
+            <MessageCircle color={c.background} size={17} />
             <Text style={s.messageText}>Message</Text>
           </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close location details" onPress={() => setSelectedId(undefined)} style={s.close}>
+            <X color={c.secondary} size={20} />
+          </Pressable>
         </View>
+      ) : (
+        <View style={s.mapFooter}>
+          <Text style={s.footerTitle}>
+            {validPins.length ? `${validPins.length} ${validPins.length === 1 ? "person" : "people"} on the map`
+              : connectedCount ? "Connected · no shared locations" : "No nearby locations yet"}
+            {activeRequestCount ? ` · ${activeRequestCount} SOS` : ""}
+          </Text>
+          {own && <Text style={s.caption}>Your location · {locationLabel(own, now)}</Text>}
+          {!own && !validPins.length && <Text style={s.caption}>Use the locate button to find yourself.</Text>}
+        </View>
+      )}
+      {(actionError || map.error || (onlineFailed && showOnline)) && (
+        <Text accessibilityLiveRegion="polite" numberOfLines={3} style={s.mapError}>
+          {actionError || map.error || "Online map unavailable. Showing offline map."}
+        </Text>
       )}
     </View>
   );
@@ -602,6 +628,8 @@ const s = StyleSheet.create({
     borderColor: c.border,
     backgroundColor: c.card,
   },
+  fill: { flex: 1, minHeight: 0 },
+  viewport: { flex: 1, minHeight: 160, overflow: "hidden" },
   map: { flex: 1 },
   unavailable: {
     flex: 1,
@@ -614,11 +642,11 @@ const s = StyleSheet.create({
     position: "absolute",
     top: 16,
     left: 16,
-    maxWidth: "70%",
+    maxWidth: "65%",
     backgroundColor: c.background,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 9,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -673,22 +701,20 @@ const s = StyleSheet.create({
   },
   youText: { fontFamily: fonts.medium, fontSize: 11, color: c.text },
   mapFooter: {
-    padding: 16,
-    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 3,
     borderTopWidth: 1,
     borderTopColor: c.border,
   },
   mapOptions: { position: "absolute", top: 14, right: 14, width: 48, height: 48, borderRadius: 12, backgroundColor: c.background, borderWidth: 1, borderColor: c.border, alignItems: "center", justifyContent: "center" },
   mapActions: { position: "absolute", top: 70, right: 14, borderRadius: 12, backgroundColor: c.background, borderWidth: 1, borderColor: c.border, padding: 6 },
   mapAction: { minHeight: 48, justifyContent: "center", paddingHorizontal: 14 },
-  legend: { flexDirection: "row", flexWrap: "wrap", gap: 16, marginBottom: 4 },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
-  legendSos: { width: 7, height: 7, borderRadius: 2, backgroundColor: c.redLabel },
-  legendPerson: { width: 7, height: 7, borderRadius: 4, backgroundColor: c.text },
+  footerTitle: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 18, color: c.text },
   sosMarker: { minWidth: 46, height: 42, borderRadius: 12, backgroundColor: c.red, borderWidth: 2, borderColor: c.background, alignItems: "center", justifyContent: "center", paddingHorizontal: 7 },
   selectedSosMarker: { borderColor: c.text, borderWidth: 3 },
+  historyMarker: { backgroundColor: c.raised, borderColor: c.secondary },
   sosText: { fontFamily: fonts.medium, fontSize: 12, color: c.onAction },
-  requestEyebrow: { fontFamily: fonts.medium, fontSize: 11, lineHeight: 16, color: c.redLabel },
   actionText: { fontFamily: fonts.medium, fontSize: 13, color: c.text },
   caption: {
     fontFamily: fonts.body,
@@ -707,20 +733,23 @@ const s = StyleSheet.create({
   },
   attributionText: { fontFamily: fonts.body, color: c.secondary, fontSize: 10 },
   selection: {
-    padding: 16,
-    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 8,
+    flexDirection: "row",
+    alignItems: "center",
     borderTopWidth: 1,
     borderTopColor: c.border,
   },
-  selectionTop: { flexDirection: "row", alignItems: "center", gap: 12 },
+  selectionCopy: { flex: 1, minWidth: 0, gap: 3 },
   name: {
     fontFamily: fonts.medium,
-    fontSize: 19,
-    lineHeight: 25,
+    fontSize: 17,
+    lineHeight: 22,
     color: c.text,
   },
   close: {
-    minWidth: 48,
+    minWidth: 44,
     minHeight: 48,
     alignItems: "center",
     justifyContent: "center",
@@ -728,16 +757,16 @@ const s = StyleSheet.create({
   message: {
     minHeight: 48,
     backgroundColor: c.text,
-    borderRadius: 14,
+    borderRadius: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 9,
-    padding: 12,
+    gap: 5,
+    padding: 10,
   },
-  messageText: { fontFamily: fonts.medium, fontSize: 15, color: c.background },
+  messageText: { fontFamily: fonts.medium, fontSize: 13, color: c.background },
   retry: { minHeight: 48, paddingHorizontal: 24, paddingVertical: 14, backgroundColor: c.text, borderRadius: 10 },
-  recoveryAction: { minHeight: 48, justifyContent: "center", alignItems: "center", borderWidth: 1, borderColor: c.border, borderRadius: 10, marginTop: 6 },
+  mapError: { fontFamily: fonts.body, fontSize: 12, lineHeight: 17, color: c.secondary, paddingHorizontal: 14, paddingBottom: 10 },
   disabled: { opacity: 0.45 },
   pressed: { opacity: 0.7 },
 });

@@ -29,8 +29,10 @@ function repository() {
   return { repo: new SocialRepository(db), close: () => sql.close() };
 }
 
-function screen(getState: () => any, now: () => number, route?: { view?: string }) {
-  let firstEffect: (() => void) | undefined;
+function screen(getState: () => any, now: () => number, route?: { view?: string; requestId?: string }) {
+  let screenEffects: (() => void)[] = [];
+  let requestFocus: any;
+  let firstUndefined = true;
   let mode: "people" | "map" = "people";
   const container = ({ children }: any) => React.createElement("div", null, children);
   const text = ({ children }: any) => React.createElement("span", null, children);
@@ -51,11 +53,16 @@ function screen(getState: () => any, now: () => number, route?: { view?: string 
     if (name === "react") return {
       ...React,
       // Select each real view without simulating native button dispatch.
-      useState: (initial: any) => route && initial === "people"
-        ? [mode, (value: "people" | "map") => { mode = value; }]
-        : React.useState(initial === "people" ? mode : initial),
+      useState: (initial: any) => {
+        if (route && initial === "people") return [mode, (value: "people" | "map") => { mode = value; }];
+        if (route && initial === undefined && firstUndefined) {
+          firstUndefined = false;
+          return [requestFocus, (value: any) => { requestFocus = typeof value === "function" ? value(requestFocus) : value; }];
+        }
+        return React.useState(initial === "people" ? mode : initial);
+      },
       useEffect: (effect: () => void, dependencies: unknown[]) => {
-        if (route) firstEffect ??= effect;
+        if (route && screenEffects.length < 2) screenEffects.push(effect);
         else React.useEffect(effect, dependencies);
       },
     };
@@ -75,7 +82,7 @@ function screen(getState: () => any, now: () => number, route?: { view?: string 
     if (name.endsWith("/components/AudiencePicker")) return { __esModule: true, default: () => null };
     if (name.endsWith("/components/RequestCard")) return { RequestCard: () => null };
     if (name.endsWith("/components/ui")) return {
-      Screen: container, Heading: text, ErrorNotice: () => null, styles: {}, age: () => "recently",
+      Screen: ({ children, scroll }: any) => React.createElement("div", { "data-screen-scroll": String(scroll ?? true) }, children), Heading: text, ErrorNotice: () => null, styles: {}, age: () => "recently",
       useAction: () => ({ busy: false, run: async (action: () => Promise<void>) => action() }),
     };
     throw new Error(`Unexpected UI dependency: ${name}`);
@@ -94,11 +101,13 @@ function screen(getState: () => any, now: () => number, route?: { view?: string 
   const Nearby = load("../../apps/mobile/app/(tabs)/nearby.tsx").default;
   return (selected: "people" | "map" = "people") => {
     mode = selected;
-    firstEffect = undefined;
+    screenEffects = [];
+    firstUndefined = true;
     const html = renderToStaticMarkup(React.createElement(Nearby));
     if (!route) return html;
     // Flush the screen's route-intent effect; native map effects stay outside this test.
-    firstEffect?.();
+    for (const effect of screenEffects) effect();
+    firstUndefined = true;
     return renderToStaticMarkup(React.createElement(Nearby));
   };
 }
@@ -255,4 +264,31 @@ test("explicit People navigation leaves a selected Map and does not override lat
   assert.match(people, /Find people/, "People link must render the actual discovery action");
   assert.equal(route.view, undefined, "People intent must be consumed");
   assert.match(render("map"), /Map options/, "manual Map selection must remain after the People intent is consumed");
+});
+
+test("Map owns a fixed viewport, People remains scrollable, and explicit history focus clears on generic navigation or audience change", () => {
+  const now = Date.now();
+  const request = { id: "old", name: "Alex", status: "completed", groupId: null, location: { source: "device", latitude: 47.65, longitude: -122.30, capturedAt: now - 600_000 } };
+  const state = {
+    nodeId: "me", activeGroupId: null as string | null, groups: [], people: [], requests: [request],
+    location: { source: "unavailable" }, locationPermission: "denied", locationSharing: false,
+    relayEnabled: true, relayRunning: true, bluetooth: "poweredOn",
+    map: { status: "ready", progress: 1, bundled: true }, internet: false,
+  };
+  const route: { view?: string; requestId?: string } = { view: "map", requestId: "old" };
+  const render = screen(() => state, () => now, route);
+  const target = render();
+  assert.match(target, /data-screen-scroll="false"/);
+  assert.match(target, /data-point="request-old"/);
+  assert.match(target, /completed reported location/);
+  assert.equal(route.requestId, undefined);
+  route.view = "map";
+  assert.ok(!render("map").includes('data-point="request-old"'), "explicit generic navigation clears history focus");
+  route.view = "map"; route.requestId = "old";
+  assert.match(render(), /data-point="request-old"/);
+  state.activeGroupId = "private";
+  assert.ok(!render("map").includes('data-point="request-old"'), "another audience never shows a public historical request");
+  state.activeGroupId = null;
+  assert.ok(!render("map").includes('data-point="request-old"'), "changing back does not resurrect an old route intent");
+  assert.match(render("people"), /data-screen-scroll="true"/);
 });

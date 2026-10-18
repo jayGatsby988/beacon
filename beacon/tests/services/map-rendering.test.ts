@@ -186,3 +186,56 @@ test("stalled saved map falls back to bundled streets, then offers a working rel
   reload.props.onPress();
   assert.match(surface(h.render(NearbyMap, initial)).props.mapKey, /^saved-/);
 });
+
+test("manual map pan blocks later discovery and focus refresh from snapping the camera", () => {
+  const h = harness();
+  const NearbyMap = h.load("../../apps/mobile/src/components/NearbyMap.tsx").default;
+  const initial = { ...props(), pins: [] };
+  const first = surface(h.render(NearbyMap, initial));
+  let updates = 0;
+  first.props.camera.current = { setCamera: () => updates++, fitBounds: () => updates++ };
+  first.props.onReady();
+  h.render(NearbyMap, initial);
+  assert.equal(updates, 1);
+  first.props.onRegionWillChange({ properties: { isUserInteraction: true } });
+  first.props.onRegionChange({ geometry: { coordinates: [-122.31, 47.66] }, properties: { isUserInteraction: true, zoomLevel: 17.5 } });
+  h.render(NearbyMap, { ...props(), focusRevision: 3 });
+  assert.equal(updates, 1, "discovery and returning GPS reports must not fight a manual pan");
+  first.props.onFailed();
+  h.render(NearbyMap, initial);
+});
+
+test("explicit historical request is neutral, focused once, and never confuses a missing location with another person's position", () => {
+  const h = harness();
+  const NearbyMap = h.load("../../apps/mobile/src/components/NearbyMap.tsx").default;
+  const request = { id: "old-request", name: "Alex", status: "completed", location: { ...location, longitude: -122.308, capturedAt: at - 600_000 } };
+  const initial = { ...props(), requests: [request], focusRequestId: request.id, requestFocusRevision: 1 };
+  const first = surface(h.render(NearbyMap, initial));
+  const updates: any[] = [];
+  first.props.camera.current = { setCamera: (value: any) => updates.push(value), fitBounds: (...value: any[]) => updates.push(value) };
+  first.props.onReady();
+  h.render(NearbyMap, initial);
+  const focused = surface(h.render(NearbyMap, initial));
+  const marker = focused.props.markers.find((item: any) => item.id === "request-old-request");
+  assert.equal(marker.kind, "history");
+  assert.equal(marker.label, "Past");
+  assert.equal(marker.selected, true);
+  assert.deepEqual(Array.from(updates[0].centerCoordinate), [-122.308, 47.655]);
+  focused.props.onRegionWillChange({ properties: { isUserInteraction: true } });
+  h.render(NearbyMap, { ...initial, now: at + 30_000, focusRevision: 2 });
+  assert.equal(updates.length, 1, "an explicit target centers once; unrelated refreshes preserve panning");
+  const unavailable = { ...initial, focusRequestId: "missing", requestFocusRevision: 2 };
+  h.render(NearbyMap, unavailable);
+  const result = h.render(NearbyMap, unavailable);
+  assert.equal(updates.length, 1, "missing target does not fit a different pin");
+  assert.ok(find(result, (node) => node.type === "Text" && node.props.children === "This request has no available location in this audience."));
+  const cleared = surface(h.render(NearbyMap, { ...initial, focusRequestId: undefined }));
+  assert.ok(!cleared.props.markers.some((item: any) => item.id === "request-old-request"), "history pins stay out of the generic map");
+});
+
+test("a saved distant area does not hide bundled UW streets at the current location", () => {
+  const h = harness();
+  const NearbyMap = h.load("../../apps/mobile/src/components/NearbyMap.tsx").default;
+  const initial = { ...props(), map: { status: "ready", progress: 1, bundled: false, styleUrl: "file:///elsewhere.json", bounds: [-74.02, 40.7, -73.9, 40.8] } };
+  assert.equal(surface(h.render(NearbyMap, initial)).props.mapKey, "bundled");
+});

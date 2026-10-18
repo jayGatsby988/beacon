@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Linking,
   Pressable,
   StyleSheet,
   Switch,
   Text,
   View,
-  useWindowDimensions,
 } from "react-native";
 import {
   MessageCircle,
@@ -23,15 +23,21 @@ import { colors as c, fonts } from "../../src/theme/tokens";
 
 export default function Nearby() {
   const b = useBeacon();
-  const { height } = useWindowDimensions();
   const [mode, setMode] = useState<"people" | "map">("people");
-  const { view } = useLocalSearchParams<{ view?: string | string[] }>();
+  const { view, requestId } = useLocalSearchParams<{ view?: string | string[]; requestId?: string | string[] }>();
+  const [requestFocus, setRequestFocus] = useState<{ id: string; revision: number; scope: string | null }>();
   useEffect(() => {
     if (view !== "map" && view !== "people") return;
     setMode(view);
+    if (view === "map" && typeof requestId === "string") {
+      setRequestFocus((previous) => ({ id: requestId, revision: (previous?.revision ?? 0) + 1, scope: b.activeGroupId }));
+    } else setRequestFocus(undefined);
     // Consume explicit navigation intent so later tab visits preserve the user's mode.
-    router.setParams({ view: undefined });
-  }, [view]);
+    router.setParams({ view: undefined, requestId: undefined });
+  }, [view, requestId, b.activeGroupId]);
+  useEffect(() => {
+    if (requestFocus && requestFocus.scope !== b.activeGroupId) setRequestFocus(undefined);
+  }, [requestFocus, b.activeGroupId]);
   const [now, setNow] = useState(Date.now);
   const [mapFocusRevision, setMapFocusRevision] = useState(0);
   const findAction = useAction();
@@ -110,10 +116,11 @@ export default function Nearby() {
   ), [connected, now]);
   const requests = useMemo(() => b.requests.filter((request) =>
     (request.groupId ?? null) === b.activeGroupId &&
-    (request.status === "active" || request.status === "accepted"),
-  ), [b.requests, b.activeGroupId]);
+    (request.status === "active" || request.status === "accepted" || request.id === requestFocus?.id),
+  ), [b.requests, b.activeGroupId, requestFocus?.id]);
   const finding = b.findingPeople || findAction.busy;
   const unavailable = b.bluetooth === "unsupported";
+  const bluetoothSettings = b.bluetooth === "poweredOff" || b.bluetooth === "unauthorized";
   const status = finding
     ? "Looking nearby…"
     : unavailable
@@ -130,18 +137,18 @@ export default function Nearby() {
                 ? "Ready to connect"
                 : "Not connected";
   return (
-    <Screen title="Nearby" main>
-      <View style={s.titleRow}>
+    <Screen title="Nearby" main scroll={mode !== "map"} contentStyle={mode === "map" ? s.mapContent : undefined}>
+      {mode === "people" && <View style={s.titleRow}>
         <Text accessibilityRole="header" style={s.title}>Nearby</Text>
         <View style={s.audience}><AudiencePicker label="Audience" compact /></View>
-      </View>
+      </View>}
       <View accessibilityRole="tablist" style={s.segments}>
         {(["people", "map"] as const).map((item) => (
           <Pressable
             key={item}
             accessibilityRole="tab"
             accessibilityState={{ selected: mode === item }}
-            onPress={() => setMode(item)}
+            onPress={() => { setMode(item); setRequestFocus(undefined); }}
             style={({ pressed }) => [
               s.segment,
               mode === item && s.segmentSelected,
@@ -166,14 +173,14 @@ export default function Nearby() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={
-                finding ? "Finding nearby people" : "Find nearby people"
+                finding ? "Finding nearby people" : bluetoothSettings ? "Open Bluetooth settings" : "Find nearby people"
               }
               accessibilityState={{
                 busy: finding,
                 disabled: finding || unavailable,
               }}
               disabled={finding || unavailable}
-              onPress={() => void findAction.run(b.findPeople)}
+              onPress={() => void findAction.run(bluetoothSettings ? () => Linking.openSettings() : b.findPeople)}
               style={({ pressed }) => [
                 s.find,
                 (finding || unavailable) && s.disabled,
@@ -186,7 +193,7 @@ export default function Nearby() {
                 <Radar color={c.text} size={18} />
               )}
               <Text style={s.findText}>
-                {finding ? "Finding" : "Find people"}
+                {finding ? "Finding" : bluetoothSettings ? "Bluetooth settings" : "Find people"}
               </Text>
             </Pressable>
           </View>
@@ -250,10 +257,9 @@ export default function Nearby() {
       ) : (
         <>
           <View style={s.sharing}>
-            <View style={s.sharingCopy}>
-              <Text style={s.sharingTitle}>Share my location</Text>
-              <Text style={s.caption}>{scopeName} · while Beacon is open</Text>
-            </View>
+            <View style={s.mapAudience}><AudiencePicker label="Map audience" compact /></View>
+            <View style={s.sharingControl}>
+            <Text style={s.sharingTitle}>Share location</Text>
             <Switch
               accessibilityLabel={`Share my location with ${scopeName}`}
               accessibilityHint="Only recent location reports are shared while Beacon is open."
@@ -265,12 +271,15 @@ export default function Nearby() {
               trackColor={{ false: c.border, true: c.secondary }}
               thumbColor={c.text}
             />
+            </View>
           </View>
           <ErrorNotice message={shareAction.error} />
           <NearbyMap
             key={b.activeGroupId ?? "public"}
             ownLocation={b.location}
             focusRevision={mapFocusRevision}
+            focusRequestId={requestFocus?.scope === b.activeGroupId ? requestFocus.id : undefined}
+            requestFocusRevision={requestFocus?.revision}
             pins={pins}
             requests={requests}
             connectedCount={connected.length}
@@ -280,19 +289,14 @@ export default function Nearby() {
             onSaveArea={b.downloadMap}
             onCancelSave={b.cancelMapDownload}
             now={now}
-            height={Math.max(280, Math.min(460, height * 0.43))}
           />
-          {connected.length > 0 && pins.length === 0 && (
-            <Text style={s.caption}>
-              People appear here when they share their location.
-            </Text>
-          )}
         </>
       )}
     </Screen>
   );
 }
 const s = StyleSheet.create({
+  mapContent: { gap: 10, paddingTop: 8, paddingHorizontal: 12, paddingBottom: 6 },
   titleRow: { gap: 4 },
   audience: { alignSelf: "flex-start", maxWidth: "100%" },
   title: { fontFamily: fonts.headline, fontSize: 38, lineHeight: 43, letterSpacing: -1, color: c.text },
@@ -436,12 +440,14 @@ const s = StyleSheet.create({
     textAlign: "center",
     maxWidth: 300,
   },
-  sharing: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 4 },
-  sharingCopy: { flex: 1, gap: 4 },
+  sharing: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, paddingHorizontal: 2 },
+  mapAudience: { flex: 1, minWidth: 0 },
+  sharingControl: { flexDirection: "row", alignItems: "center", gap: 6, maxWidth: "48%" },
   sharingTitle: {
     fontFamily: fonts.medium,
-    fontSize: 16,
-    lineHeight: 23,
+    fontSize: 12,
+    lineHeight: 16,
+    flexShrink: 1,
     color: c.text,
   },
   disabled: { opacity: 0.45 },

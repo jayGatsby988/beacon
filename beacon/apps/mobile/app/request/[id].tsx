@@ -17,7 +17,6 @@ import {
   StatusLine,
 } from "../../src/components/ui";
 import { categoryNames, requestStatus } from "../../src/components/RequestCard";
-import { LocationCard } from "../../src/components/LocationCard";
 import { colors as c, fonts } from "../../src/theme/tokens";
 
 function Disclosure({
@@ -53,7 +52,6 @@ function RequestContent({ id }: { id: string | undefined }) {
   const r = b.requests.find((request) => request.id === id);
   const action = useAction();
   const [showDelivery, setShowDelivery] = useState(false);
-  const [showMap, setShowMap] = useState(false);
   const [receiptError, setReceiptError] = useState<string>();
   const markedRequests = useRef(new Set<string>());
   const markSeen = b.markSeen;
@@ -115,10 +113,10 @@ function RequestContent({ id }: { id: string | undefined }) {
     ]);
 
   return (
-    <Screen back title={r.mine ? "Your SOS" : "Help request"}>
+    <Screen back title="Help">
       <View style={[s.summary, r.status === "completed" && s.completed]}>
         <Text accessibilityRole="header" style={[s.requestTitle, r.status === "completed" && s.darkText]}>
-          {r.mine ? r.status === "completed" ? "All done." : "Your SOS" : `${r.name || "Someone"} needs help`}
+          {r.mine ? closed ? "Your request" : "Your SOS" : closed ? `${r.name || "Participant"}’s request` : `${r.name || "Someone"} needs help`}
         </Text>
         {r.category !== "other" && <Text style={[s.category, r.status === "completed" && s.darkText]}>{categoryNames[r.category]}</Text>}
         <View style={s.statusRow}>
@@ -133,26 +131,19 @@ function RequestContent({ id }: { id: string | undefined }) {
         </View>
       </View>
 
-      {(r.note || r.location.place || hasCoordinates) && (
-        <View style={s.context}>
-          {!!r.note && <Body>{r.note}</Body>}
-          {(r.location.place || hasCoordinates) && (
-            <View style={s.locationSummary}>
-              <MapPin size={21} color={c.secondary} />
-              <View style={s.statusCopy}>
-                <Text selectable style={styles.smallTitle}>{r.location.place || `${r.location.latitude!.toFixed(5)}, ${r.location.longitude!.toFixed(5)}`}</Text>
-                {hasCoordinates && <Text style={styles.caption}>{formatReportTime(r.location.capturedAt)} · Not live{r.location.accuracy != null ? ` · ±${Math.round(r.location.accuracy)} m` : ""}</Text>}
-              </View>
-            </View>
-          )}
-          {hasCoordinates && (
-            <View>
-              <Disclosure title="Location map" open={showMap} onPress={() => setShowMap((shown) => !shown)} />
-              {showMap && <LocationCard location={r.location} map={b.map} />}
-            </View>
-          )}
+      <View style={s.context}>
+        {!!r.note && <Body>{r.note}</Body>}
+        <View style={s.locationSummary}>
+          <MapPin size={21} color={c.secondary} />
+          <View style={s.statusCopy}>
+            {r.location.place || hasCoordinates ? <>
+              <Text selectable style={styles.smallTitle}>{r.location.place || `${r.location.latitude!.toFixed(5)}, ${r.location.longitude!.toFixed(5)}`}</Text>
+              {hasCoordinates && <Text style={styles.caption}>{formatReportTime(r.location.capturedAt)} · Not live{r.location.accuracy != null ? ` · ±${Math.round(r.location.accuracy)} m` : ""}</Text>}
+            </> : <Text style={styles.caption}>No location attached</Text>}
+          </View>
         </View>
-      )}
+        {hasCoordinates && <TextButton onPress={() => router.push({ pathname: "/(tabs)/nearby", params: { view: "map", requestId: r.id } })}>View location on map</TextButton>}
+      </View>
 
       {canOffer && <Button busy={action.busy} onPress={() => action.run(() => b.offerHelp(r.id))}>Offer help</Button>}
 
