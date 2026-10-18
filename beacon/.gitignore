@@ -1,0 +1,17 @@
+node_modules/
+.expo/
+dist/
+build/
+DerivedData/
+*.log
+.env
+.env.*
+!.env.example
+*.p12
+*.mobileprovision
+*.key
+.DS_Store
+tmp/
+apps/mobile/ios/
+apps/mobile/android/
+docs/source/
