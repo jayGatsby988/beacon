@@ -1,0 +1,14 @@
+{
+  email {$ACME_EMAIL}
+}
+{$BEACON_DOMAIN} {
+  encode zstd gzip
+  request_body {
+    max_size 2MB
+  }
+  header {
+    Strict-Transport-Security "max-age=31536000"
+    X-Content-Type-Options nosniff
+  }
+  reverse_proxy api:3000
+}

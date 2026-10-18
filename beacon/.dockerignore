@@ -1,0 +1,14 @@
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+.git
+.tooling
+**/tmp
+**/ios
+**/android
+**/*.db
+**/*.sqlite
+**/*.key
+**/*.p12
+**/*.mobileprovision

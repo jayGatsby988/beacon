@@ -1,0 +1,6 @@
+{
+  "name": "@beacon/api", "version": "0.1.0", "private": true, "type": "module",
+  "scripts": {"dev":"tsx watch src/server.ts","start":"tsx src/server.ts","typecheck":"tsc --noEmit","test":"tsx --test tests/*.test.ts","migrate":"tsx src/admin.ts migrate","admin":"tsx src/admin.ts","refresh":"tsx src/admin.ts refresh"},
+  "dependencies": {"@beacon/protocol":"*","express":"^5.1.0","pg":"^8.16.3","zod":"^3.24.2"},
+  "devDependencies":{"@types/express":"^5.0.3","@types/pg":"^8.15.5"}
+}
