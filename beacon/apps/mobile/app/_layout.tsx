@@ -18,7 +18,7 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <BeaconProvider>
-        <StatusBar style="dark" />
+        <StatusBar style="light" />
         <Stack
           screenOptions={{
             headerShown: false,
@@ -29,6 +29,7 @@ export default function RootLayout() {
           <Stack.Screen name="index" />
           <Stack.Screen name="setup" />
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="request/[id]" />
           <Stack.Screen name="network" />
           <Stack.Screen name="history" />
           <Stack.Screen name="incident" />

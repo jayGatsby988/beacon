@@ -22,9 +22,9 @@ export default function AudiencePicker({ label = "Audience", compact = false }: 
   return (
     <>
       <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${name}. Change audience`} onPress={() => setOpen(true)} style={({ pressed }) => [s.trigger, compact && s.compact, pressed && s.pressed]}>
-        {!compact && (b.activeGroupId ? <LockKeyhole size={20} color={c.text} /> : <Users size={20} color={c.text} />)}
-        <Text style={[s.triggerText, compact && s.compactText]}>To: {name}</Text>
-        <ChevronDown size={20} color={c.text} />
+        {b.activeGroupId ? <LockKeyhole size={17} color={c.secondary} /> : <Users size={17} color={c.secondary} />}
+        <Text style={[s.triggerText, compact && s.compactText]}>{compact ? "To " : ""}{b.activeGroupId ? name : compact ? "everyone nearby" : "Everyone nearby"}</Text>
+        <ChevronDown size={16} color={c.secondary} />
       </Pressable>
       <Modal visible={open} transparent animationType="none" onRequestClose={close}>
         <View style={s.overlay}>
@@ -54,11 +54,11 @@ export default function AudiencePicker({ label = "Audience", compact = false }: 
 }
 
 const s = StyleSheet.create({
-  trigger: { minHeight: 48, maxWidth: "100%", flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6, alignSelf: "flex-start" },
-  triggerText: { fontFamily: fonts.body, color: c.text, fontSize: 18, lineHeight: 27, flexShrink: 1 },
+  trigger: { minHeight: 48, maxWidth: "100%", flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: c.border, borderRadius: 24, backgroundColor: c.card, paddingHorizontal: 14, paddingVertical: 10, alignSelf: "flex-start" },
+  triggerText: { fontFamily: fonts.medium, color: c.text, fontSize: 13, lineHeight: 19, flexShrink: 1 },
   compact: { minHeight: 44, borderWidth: 0, backgroundColor: "transparent", paddingHorizontal: 0, paddingVertical: 5, gap: 6 },
-  compactText: { fontFamily: fonts.body, fontSize: 18, lineHeight: 27, color: c.text },
-  overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(8,45,37,0.25)" },
+  compactText: { fontFamily: fonts.body, fontSize: 13, color: c.secondary },
+  overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.65)" },
   sheet: { width: "100%", maxWidth: 640, maxHeight: "85%", alignSelf: "center", padding: 20, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderColor: c.border, backgroundColor: c.card, gap: 14 },
   headingRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   heading: { fontFamily: fonts.medium, fontSize: 22, color: c.text, flex: 1, letterSpacing: -0.6 },

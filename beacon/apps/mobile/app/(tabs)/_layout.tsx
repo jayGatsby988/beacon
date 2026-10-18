@@ -1,6 +1,6 @@
 import { useWindowDimensions } from "react-native";
 import { Tabs } from "expo-router";
-import { Users, LifeBuoy } from "lucide-react-native";
+import { Users, Radio } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBeacon } from "../../src/services/BeaconContext";
 import { colors as c, fonts } from "../../src/theme/tokens";
@@ -52,7 +52,7 @@ export default function TabsLayout() {
           tabBarAccessibilityLabel: requestCount ? `Help, ${requestCount} active requests` : "Help",
           tabBarBadge: requestCount > 99 ? "99+" : requestCount || undefined,
           tabBarBadgeStyle: badgeStyle,
-          tabBarIcon: ({ color }) => <LifeBuoy size={25} color={color} />,
+          tabBarIcon: ({ color }) => <Radio size={24} color={color} />,
         }}
       />
       <Tabs.Screen

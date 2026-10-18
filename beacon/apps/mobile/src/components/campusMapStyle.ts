@@ -21,28 +21,28 @@ export const campusStyle = {
     {
       id: "background",
       type: "background",
-      paint: { "background-color": "#F3F5F1" },
+      paint: { "background-color": "#182229" },
     },
     {
       id: "parks",
       type: "fill",
       source: "campus",
       filter: ["==", "kind", "park"],
-      paint: { "fill-color": "#DCE8D9" },
+      paint: { "fill-color": "#243A33" },
     },
     {
       id: "water",
       type: "fill",
       source: "campus",
       filter: ["all", ["==", "kind", "water"], ["==", "$type", "Polygon"]],
-      paint: { "fill-color": "#C7DFE6" },
+      paint: { "fill-color": "#142F40" },
     },
     {
       id: "buildings",
       type: "fill",
       source: "campus",
       filter: ["==", "kind", "building"],
-      paint: { "fill-color": "#D4DCD7", "fill-outline-color": "#B5C1BA" },
+      paint: { "fill-color": "#30404B", "fill-outline-color": "#43515B" },
     },
     {
       id: "roads",
@@ -50,7 +50,7 @@ export const campusStyle = {
       source: "campus",
       filter: ["==", "kind", "road"],
       paint: {
-        "line-color": "#8C9A92",
+        "line-color": "#596772",
         "line-width": ["interpolate", ["linear"], ["zoom"], 13, 1, 17, 4],
       },
     },

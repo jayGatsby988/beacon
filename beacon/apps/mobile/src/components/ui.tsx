@@ -92,6 +92,7 @@ export function BeaconMark({
 export function Brand() {
   return (
     <View style={styles.brand}>
+      <BeaconMark />
       <Text maxFontSizeMultiplier={1.4} style={styles.wordmark}>
         Beacon
       </Text>
@@ -103,16 +104,14 @@ export function TopBar({
   title,
   main = false,
   hideSettings = false,
-  showConnection = false,
 }: {
   back?: boolean;
   title?: string;
   network?: string;
   main?: boolean;
   hideSettings?: boolean;
-  showConnection?: boolean;
 }) {
-  if (main) return <MainHeader brand={<Brand />} showConnection={showConnection} />;
+  if (main) return <MainHeader brand={<Brand />} />;
   return (
     <View style={styles.topBar}>
       {back ? (
@@ -159,7 +158,6 @@ export function Screen({
   footer,
   main = false,
   hideSettings = false,
-  showConnection = false,
 }: {
   children: ReactNode;
   back?: boolean;
@@ -168,17 +166,15 @@ export function Screen({
   footer?: ReactNode;
   main?: boolean;
   hideSettings?: boolean;
-  showConnection?: boolean;
 }) {
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
-      <TopBar back={back} title={title} network={network} main={main} hideSettings={hideSettings} showConnection={showConnection} />
+      <TopBar back={back} title={title} network={network} main={main} hideSettings={hideSettings} />
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          { paddingHorizontal: width < 360 ? 20 : 24, paddingBottom: main ? 24 : 24 + insets.bottom },
+          { paddingBottom: 20 + insets.bottom },
         ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -249,7 +245,7 @@ export function Button({
         {children}
       </Text>
       {busy ? (
-        <ActivityIndicator color={secondary ? c.text : c.onAction} />
+        <ActivityIndicator color={c.text} />
       ) : icon ? (
           <ArrowRight size={21} color={secondary ? c.text : c.onAction} />
       ) : null}
@@ -445,14 +441,14 @@ export const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 640,
     alignSelf: "center",
-    paddingHorizontal: 24,
-    paddingTop: 16,
+    paddingHorizontal: 20,
+    paddingTop: 8,
     paddingBottom: 20,
-    gap: 24,
+    gap: 20,
   },
   topBar: {
     width: "100%",
-    maxWidth: 640,
+    maxWidth: 680,
     alignSelf: "center",
     minHeight: 72,
     paddingVertical: 8,
@@ -463,8 +459,8 @@ export const styles = StyleSheet.create({
   },
   brand: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
   wordmark: {
-    fontFamily: fonts.headline,
-    fontSize: 27,
+    fontFamily: fonts.medium,
+    fontSize: 24,
     letterSpacing: -0.9,
     color: c.text,
   },
@@ -499,7 +495,7 @@ export const styles = StyleSheet.create({
   },
   chipText: { fontSize: 12, color: c.secondary, fontFamily: fonts.medium },
   heading: {
-    fontFamily: fonts.headline,
+    fontFamily: fonts.medium,
     color: c.text,
     letterSpacing: -0.7,
     flexShrink: 1,
@@ -544,9 +540,9 @@ export const styles = StyleSheet.create({
     gap: 12,
   },
   secondaryButton: {
-    backgroundColor: c.background,
+    backgroundColor: c.raised,
     borderWidth: 1,
-    borderColor: c.text,
+    borderColor: c.border,
   },
   buttonText: {
     fontFamily: fonts.medium,

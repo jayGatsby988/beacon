@@ -199,33 +199,3 @@ Current production JavaScript/assets were exported into the existing compatible 
 Native Screenshot captures: [Help](screenshots/redesign/help.png), [People](screenshots/redesign/nearby-people.png), [Map](screenshots/redesign/nearby-map.png). The first Map capture was incorrectly copied from the prior People image; it was replaced using a fresh native screenshot-control index, and the final saved Map PNG was opened and visually confirmed to show Map selected, sharing off, real streets, and the You pin. Root separately inspected Help and People. Map is scrollable; lower map actions extend below the initial viewport.
 
 This verifies the actual app’s local UI flows on the compatible simulator build. It does not establish BLE discovery, peer chat/call delivery, or keyboard behavior on a physical phone. The app was left on Help, public audience selected, with no active QA request or unsent draft.
-
-
-## Light reference redesign and emergency-flow fixes — October 18, approximately 06:50–07:20
-
-The supplied white/deep-green reference was implemented across Home, request details, Nearby, inbox, chat and shared controls. Screens use 24-point margins (20 on narrow layouts), two bottom tabs, visible Messages/Profile labels, a wide one-tap SOS, optional collapsed details, flat participant/request rows and outlined secondary actions. Accepted helpers/requesters now have direct chat when a valid current-audience contact exists; service guards preserve the accepted assignment across repeated/competing actions and restart.
-
-The actual iPhone 17 Pro simulator rendered Home, Nearby People and Map. A real local request labeled **SIMULATOR QA - no emergency** was saved, inspected and canceled through the confirmation dialog; Canceled with pending propagation was observed. There are no active synthetic requests. Home was also observed at extra-extra-extra-large Dynamic Type without clipping its key actions, then restored to large. The final compact map viewport fits its legend, offline coverage and position age above the tab bar at default text size. Opening map options hides the recenter control so touch targets no longer overlap.
-
-Map reliability changes keep foreground local GPS fresh every 30 seconds while Map is focused, without enabling sharing or moving the camera after its initial fit. Blur/background guards and recovery from failed or pending fixes are tested. Provider attempts now have a promise deadline covering both headers and body, and cancellation settles even if native fetch ignores abort. A real native save attempt returned HTTP 500 followed by HTTP 502; bundled geometry remained available. No successful new-area download is claimed.
-
-Final integrated validation: **191 passing tests, zero failures, one database integration skip; TypeScript and ESLint pass**. Additional native audio/codec/crypto checks passed. The user reported calling works; available physical logs show older capture/transmit/receive/playback activity but no newly captured post-install call, so audible speech is user-confirmed rather than independently observed.
-
-Current production JavaScript/assets were exported into compatible existing simulator/device binaries and signatures verified. Both physical iPhone installations and launches succeeded. A full native rebuild and extra small-phone simulator install were blocked by local disk capacity; no native source changed here. This does not establish a new paired physical SOS/chat/location acceptance test or worldwide offline street coverage.
-
-Screenshots: [Home](screenshots/light-layout/home.png), [large-text Home](screenshots/light-layout/home-large-text.png), [request](screenshots/light-layout/request.png), [Nearby](screenshots/light-layout/nearby.png), [Map](screenshots/light-layout/map.png). Machine-readable results: [light-layout.json](evidence/light-layout.json).
-
-At 07:16:30–07:18:31 the final map stayed open with sharing off for over 120 seconds; its You pin remained visible with a fresh 10-second age. Save my area → Cancel save returned to the idle save action with bundled geometry retained. Explicit View online rendered street/building geometry and labels. These are simulator observations; no peer locations were injected.
-
-
-## Inline SOS workflow and performance — October 18, approximately 08:30–08:45
-
-Unchanged background request refreshes retain their existing store snapshot; verified envelope content and derived request states reuse bounded cached work. In a real BeaconService/SQLite host workload of 40 signed synthetic SOS envelopes and ten unchanged refreshes, repeated signature checks dropped from 800 to zero and subscriber notifications from ten to zero; elapsed time dropped from 810.2 ms to 13.9 ms (18.8 ms under concurrent test load). This is host workload evidence, not physical-device frame-rate evidence. Map age ticks no longer rebuild the native map subtree, with exact position-expiry boundaries and stable request camera inputs retained. Validation: [performance evidence](evidence/performance.json).
-
-The separate SOS details interface was removed at the user's request. Actual simulator interaction saved a request labeled **SIMULATOR QA - no emergency** and remained on Help with its header, tabs, status, optional reported location and End SOS action. End SOS → I no longer need help completed the request and returned to the send controls, keeping pending propagation visible. The final compact pending-update caption was observed after repackaging; no active synthetic request remains. The map rendered bundled UW geometry and a fresh simulated location with sharing off. No contacts or radio receipts were fabricated.
-
-Final automated results: **206 passing tests, zero failures, one database integration skip**; TypeScript and ESLint passed. Sixteen Help action tests were rerun successfully after shortening the completion notice. Tests cover direct offers, named acceptance, completion/cancellation choices, scoped messaging, truthful receipt/confirmation states, legacy redirects, map-action eligibility and duplicate presses.
-
-Production JavaScript/assets were packaged into existing compatible native binaries; device/simulator signatures verified. The final app installed on Vaibhav's iPhone. A fresh launch initially returned an iOS developer-verification error; the local profile was valid, included the phone and matched the app. The user subsequently confirmed **Beacon opens**. No fresh paired physical radio/audio test or device FPS measurement is claimed. New-area map provider errors remain unresolved.
-
-Screenshots: [active SOS on Home](screenshots/inline-sos/active.png), [Home after completion](screenshots/inline-sos/home.png). Machine-readable record: [inline-sos.json](evidence/inline-sos.json).

@@ -250,44 +250,25 @@ export function createEnvelope(
     throw new Error("Invalid signing identity or envelope");
   return envelope;
 }
-// Durable messages are re-read by storage, reducers and relay queues. Remember
-// successful signature work by authenticated content, never by a mutable object
-// reference. Schema, identity, lifetime and content-hash checks still run on every
-// call. Only successful checks enter this bounded, process-local cache.
-const verifiedSignatures = new Map<string, true>();
-const SIGNATURE_CACHE_LIMIT = LIMITS.messages + LIMITS.controlHistory;
 export function verifyEnvelope(value: unknown): value is Envelope {
   try {
     if (!value || typeof value !== "object") return false;
     const { signature, ...body } = value as Envelope;
     const parsed = SignedBodySchema.parse({ body, signature });
     const { id, ...unsigned } = parsed.body;
-    if (
-      parsed.body.expiresAt <= parsed.body.createdAt ||
-      parsed.body.expiresAt - parsed.body.createdAt > LIMITS.maxTtlMs ||
-      parsed.body.origin !==
-        bytesToHex(sha256(hexToBytes(parsed.body.publicKey))) ||
-      id !== hash(canonical(unsigned))
-    ) return false;
-    const key = id + parsed.signature;
-    if (verifiedSignatures.has(key)) {
-      // Promote only after revalidating all fields, including nested payloads.
-      verifiedSignatures.delete(key);
-      verifiedSignatures.set(key, true);
-      return true;
-    }
-    const verified = ed25519.verify(
+    return (
+      parsed.body.expiresAt > parsed.body.createdAt &&
+      parsed.body.expiresAt - parsed.body.createdAt <= LIMITS.maxTtlMs &&
+      parsed.body.origin ===
+        bytesToHex(sha256(hexToBytes(parsed.body.publicKey))) &&
+      id === hash(canonical(unsigned)) &&
+      ed25519.verify(
         hexToBytes(parsed.signature),
         utf8(canonical(parsed.body)),
         hexToBytes(parsed.body.publicKey),
         { zip215: false },
+      )
     );
-    if (verified) {
-      if (verifiedSignatures.size >= SIGNATURE_CACHE_LIMIT)
-        verifiedSignatures.delete(verifiedSignatures.keys().next().value!);
-      verifiedSignatures.set(key, true);
-    }
-    return verified;
   } catch {
     return false;
   }

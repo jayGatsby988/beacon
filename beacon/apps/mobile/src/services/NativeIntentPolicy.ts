@@ -23,8 +23,7 @@ export function safeNativePath(path: string): string {
   if (route === "") return "/";
   if (!route.startsWith("/")) route = "/" + route;
   if (route.length > 1 && route.endsWith("/")) route = route.slice(0, -1);
-  // Existing request links now land on Help, where SOS actions live inline.
-  return SIMPLE_PATHS.has(route)
+  return SIMPLE_PATHS.has(route) || /^\/request\/[0-9a-f]{64}$/.test(route)
     ? route
     : "/";
 }

@@ -25,7 +25,6 @@ import {
   type Identity,
   type LocationReport as ProtocolLocation,
   type MessageInput,
-  type StoredMessage,
 } from "@beacon/protocol";
 import BeaconBle, { type BlePeer } from "../../modules/beacon-ble";
 import { Repository, type EventRow } from "../storage/Repository";
@@ -63,18 +62,6 @@ const identitySchema = z.object({
   privateKey: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
-// State contains plain view data. Keep the external-store snapshot stable when
-// polling/native events reproduce the same values, including fresh arrays.
-function sameStateValue(left: unknown, right: unknown): boolean {
-  if (Object.is(left, right)) return true;
-  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false;
-  if (Array.isArray(left) !== Array.isArray(right)) return false;
-  const a = left as Record<string, unknown>, b = right as Record<string, unknown>;
-  const keys = Object.keys(a);
-  return keys.length === Object.keys(b).length && keys.every((key) =>
-    Object.prototype.hasOwnProperty.call(b, key) && sameStateValue(a[key], b[key]));
-}
-
 export class BeaconService {
   private listeners = new Set<() => void>();
   private repository?: Repository;
@@ -99,7 +86,6 @@ export class BeaconService {
   private startPromise?: Promise<void>;
   private refreshPromise?: Promise<void>;
   private refreshAgain = false;
-  private requestCache?: { repository: Repository; ids: string[]; states: ReturnType<typeof deriveRequests> };
   private receiveTail: Promise<unknown> = Promise.resolve();
   private pendingReceives = 0;
   private syncBusy = false;
@@ -200,10 +186,7 @@ export class BeaconService {
   snapshot = () => this.state;
   private update(patch: Partial<BeaconState>) {
     if (this.disposed) return;
-    const changed = Object.fromEntries(Object.entries(patch).filter(([key, value]) =>
-      !sameStateValue(this.state[key as keyof BeaconState], value))) as Partial<BeaconState>;
-    if (!Object.keys(changed).length) return;
-    this.state = { ...this.state, ...changed };
+    this.state = { ...this.state, ...patch };
     this.listeners.forEach((l) => l());
   }
   private error = (e: unknown) => this.update({ error: safeError(e) });
@@ -331,7 +314,6 @@ export class BeaconService {
       /* Unmount has no presentation surface. */
     }
     this.listeners.clear();
-    this.requestCache = undefined;
   }
   private async start() {
     try {
@@ -657,17 +639,6 @@ export class BeaconService {
         this.pendingReceives--;
       });
   }
-  private requestStates(repository: Repository, records: StoredMessage[]) {
-    // Repository reads validate each envelope. Its authenticated content ID
-    // identifies immutable history; expiry and forwarding remain live in refresh.
-    const ids = records.map((record) => record.envelope.id);
-    const cached = this.requestCache;
-    if (cached?.repository === repository && ids.length === cached.ids.length &&
-      ids.every((id, index) => id === cached.ids[index])) return cached.states;
-    const states = deriveRequests(records.map((record) => record.envelope));
-    this.requestCache = { repository, ids, states };
-    return states;
-  }
   private async refresh() {
     if (this.disposed) return;
     if (this.refreshPromise) {
@@ -681,7 +652,7 @@ export class BeaconService {
         const repository = this.scopeRepo();
         const records = await repository.listMessages();
         const counts = await repository.forwardingCounts();
-        const requests = this.requestStates(repository, records);
+        const requests = deriveRequests(records.map((r) => r.envelope));
         const views: RequestView[] = requests.map((r) => {
           const mine = r.requesterId === this.state.nodeId;
           const terminal = r.status === "canceled" || r.status === "completed";
@@ -1095,8 +1066,7 @@ export class BeaconService {
   private async publish(input: MessageInput) {
     await this.mesh().publish(input);
     this.update({ error: undefined });
-    // The router already requested a refresh after its durable write.
-    await (this.refreshPromise ?? this.refresh());
+    await this.refresh();
   }
   sendSOS = async (input: Parameters<BeaconState["sendSOS"]>[0] = {}) =>
     this.serialize(async () => {
@@ -1121,8 +1091,9 @@ export class BeaconService {
       return id;
     });
   private async request(id: string) {
-    const repository = this.scopeRepo();
-    const r = this.requestStates(repository, await repository.listMessages()).find((r) => r.id === id);
+    const r = deriveRequests(
+      (await this.scopeRepo().listMessages()).map((m) => m.envelope),
+    ).find((r) => r.id === id);
     if (!r) throw new Error("Request not available on this phone.");
     if (
       r.status === "canceled" ||
@@ -1152,8 +1123,6 @@ export class BeaconService {
       if (r.requesterId === this.state.nodeId)
         throw new Error("You cannot offer help to your own request.");
       if (r.offers.some((o) => o.helperId === this.state.nodeId)) return;
-      if (r.status !== "open")
-        throw new Error("Help has already been accepted for this request.");
       await this.mesh().acknowledge(r.messageId);
       await this.publish({
         type: "offer",
@@ -1172,10 +1141,6 @@ export class BeaconService {
         throw new Error("Only the requester can accept an offer.");
       const offer = r.offers.find((o) => o.id === offerId);
       if (!offer) throw new Error("Offer no longer available.");
-      // Repeated taps or a reopened screen must not create a new assignment.
-      if (r.assignment?.offerId === offerId) return;
-      if (r.status !== "open")
-        throw new Error("Help has already been accepted for this request.");
       await this.publish({
         type: "accept",
         requestId: id,

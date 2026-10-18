@@ -316,8 +316,15 @@ export default function History() {
               : "Record through selected event"}
           </Label>
           {[...shown].reverse().map((e, i) => (
-            <View
+            <Pressable
               key={e.id}
+              accessibilityRole={e.requestId ? "button" : undefined}
+              accessibilityLabel={
+                e.requestId ? `${e.title}. Open request.` : undefined
+              }
+              onPress={() => {
+                if (e.requestId) router.push(`/request/${e.requestId}`);
+              }}
               style={{ flexDirection: "row", gap: 16, paddingBottom: 20 }}
             >
               <View style={{ alignItems: "center", gap: 10, width: 22 }}>
@@ -372,7 +379,7 @@ export default function History() {
                   </Text>
                 )}
               </View>
-            </View>
+            </Pressable>
           ))}
         </>
       ) : (

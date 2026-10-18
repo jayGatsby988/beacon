@@ -10,7 +10,7 @@ import {
   Label,
   Row,
   Screen,
-  formatReportTime,
+  age,
   useAction,
   styles,
 } from "../src/components/ui";
@@ -217,7 +217,7 @@ export default function Network() {
               </Text>
               <Label>{p.state}</Label>
             </View>
-            <Body muted>Last seen {formatReportTime(p.lastSeenAt)}</Body>
+            <Body muted>Last seen {age(p.lastSeenAt)}</Body>
           </Card>
         ))
       ) : (
