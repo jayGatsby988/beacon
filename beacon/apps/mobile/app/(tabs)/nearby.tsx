@@ -45,6 +45,13 @@ export default function Nearby() {
       return () => clearInterval(clock);
     }, []),
   );
+  const { locationPermission, refreshLocation } = b;
+  useFocusEffect(
+    useCallback(() => {
+      if (locationPermission === "granted")
+        void refreshLocation().catch(() => {});
+    }, [locationPermission, refreshLocation]),
+  );
   const group = b.groups.find((g) => g.id === b.activeGroupId);
   const scopeName =
     group?.name || (b.activeGroupId ? "Private group" : "Everyone nearby");
@@ -170,17 +177,6 @@ export default function Nearby() {
         </Pressable>
       </View>
       <ErrorNotice message={findAction.error || shareAction.error} />
-      <NearbyMap
-        key={b.activeGroupId ?? "public"}
-        ownLocation={b.location}
-        pins={pins}
-        internet={b.internet}
-        map={b.map}
-        onSaveArea={b.downloadMap}
-        onCancelSave={b.cancelMapDownload}
-        now={now}
-        height={Math.max(300, Math.min(420, height * 0.43))}
-      />
       <View style={s.sharing}>
         <View style={{ flex: 1, gap: 5 }}>
           <Text style={s.sharingTitle}>Share my location</Text>
@@ -203,6 +199,24 @@ export default function Nearby() {
           thumbColor={c.text}
         />
       </View>
+      {connected.length > 0 && pins.length === 0 && (
+        <Text style={s.caption}>
+          Share location on both phones to see positions.
+        </Text>
+      )}
+      <NearbyMap
+        key={b.activeGroupId ?? "public"}
+        ownLocation={b.location}
+        pins={pins}
+        connectedCount={connected.length}
+        internet={b.internet}
+        map={b.map}
+        onLocate={b.locateOnMap}
+        onSaveArea={b.downloadMap}
+        onCancelSave={b.cancelMapDownload}
+        now={now}
+        height={Math.max(230, Math.min(270, height * 0.3))}
+      />
       <View style={s.sectionHeading}>
         <Heading size={22}>People</Heading>
         {!!people.length && <Text style={s.sectionCount}>{people.length}</Text>}

@@ -1,0 +1,155 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+import { DatabaseSync } from "node:sqlite";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import * as jsx from "react/jsx-runtime";
+import ts from "typescript";
+import * as protocol from "../../packages/protocol/src/index.js";
+import { SocialService } from "../../apps/mobile/src/services/SocialService.js";
+import { SocialRepository } from "../../apps/mobile/src/storage/SocialRepository.js";
+import type { Database, SqlValue } from "../../apps/mobile/src/storage/Repository.js";
+import type { PersonView } from "../../apps/mobile/src/ui/types.js";
+import { campusStyle } from "../../apps/mobile/src/components/campusMapStyle.js";
+
+// Actual signed protocol, SocialService, SQLite repository, Nearby screen and
+// NearbyMap render. Only native views/hooks are replaced; no runtime fixtures,
+// Bluetooth/GPS hardware, native map rendering or camera movement are simulated.
+function repository() {
+  const sql = new DatabaseSync(":memory:");
+  const db: Database = {
+    execAsync: async (query: string) => { sql.exec(query); },
+    runAsync: async (query: string, ...params: SqlValue[]) => sql.prepare(query).run(...params),
+    getAllAsync: async <T>(query: string, ...params: SqlValue[]) => sql.prepare(query).all(...params) as T[],
+    getFirstAsync: async <T>(query: string, ...params: SqlValue[]) => (sql.prepare(query).get(...params) ?? null) as T | null,
+  };
+  return { repo: new SocialRepository(db), close: () => sql.close() };
+}
+
+function screen(getState: () => any, now: () => number) {
+  const container = ({ children }: any) => React.createElement("div", null, children);
+  const text = ({ children }: any) => React.createElement("span", null, children);
+  const button = ({ children, accessibilityLabel }: any) => React.createElement("button", { "aria-label": accessibilityLabel }, children);
+  const native = {
+    View: container, Text: text, Pressable: button, Switch: () => null,
+    ActivityIndicator: () => null, Linking: {},
+    useWindowDimensions: () => ({ height: 900, width: 420 }),
+    StyleSheet: { create: (value: unknown) => value, absoluteFillObject: {} },
+  };
+  const mapNative = {
+    MapView: container, Camera: () => null,
+    PointAnnotation: ({ id, coordinate, title, children }: any) => React.createElement("span", {
+      "data-point": id, "data-coordinate": JSON.stringify(coordinate), "data-title": title,
+    }, children),
+  };
+  const require = (name: string): any => {
+    if (name === "react") return React;
+    if (name === "react/jsx-runtime") return jsx;
+    if (name === "react-native") return native;
+    if (name === "expo-router") return { router: { push: () => {} }, useFocusEffect: () => {} };
+    if (name === "lucide-react-native") return new Proxy({}, { get: () => () => null });
+    if (name === "@maplibre/maplibre-react-native") return { __esModule: true, default: mapNative };
+    if (name === "@beacon/protocol") return protocol;
+    if (name.endsWith("/theme/tokens")) return { colors: {}, fonts: {} };
+    if (name === "./campusMapStyle") return { campusStyle };
+    if (name.endsWith("/services/BeaconContext")) return { useBeacon: getState };
+    if (name.endsWith("/components/NearbyMap")) return mapModule;
+    if (name.endsWith("/components/RequestCard")) return { RequestCard: () => null };
+    if (name.endsWith("/components/ui")) return {
+      Screen: container, Heading: text, ErrorNotice: () => null, styles: {}, age: () => "recently",
+      useAction: () => ({ busy: false, run: async (action: () => Promise<void>) => action() }),
+    };
+    throw new Error(`Unexpected UI dependency: ${name}`);
+  };
+  const load = (relative: string) => {
+    const source = readFileSync(new URL(relative, import.meta.url), "utf8");
+    const code = ts.transpileModule(source, { compilerOptions: {
+      module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
+      jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true,
+    } }).outputText;
+    const module = { exports: {} as any };
+    runInNewContext(`(function(exports, require, module) { ${code}\n})`, { Date: { now } })(module.exports, require, module);
+    return module.exports;
+  };
+  const mapModule = load("../../apps/mobile/src/components/NearbyMap.tsx");
+  const Nearby = load("../../apps/mobile/app/(tabs)/nearby.tsx").default;
+  return () => renderToStaticMarkup(React.createElement(Nearby));
+}
+
+for (const scope of [null, "a".repeat(64)]) {
+  test(`received ${scope ? "private" : "public"} people and pins reach actual Nearby UI; withdrawals and reconnects stay honest`, async () => {
+    let now = Date.now();
+    const queue: { receiver: number; peer: string; wire: string }[] = [];
+    const errors: unknown[] = [];
+    const peers = ["c:other", "p:other"];
+    const phones = [0, 1].map((index) => {
+      const storage = repository();
+      const identity = protocol.createIdentity(randomBytes);
+      const phone = { ...storage, identity, scope, people: [] as PersonView[], location: null as protocol.SharedLocation | null, service: null as unknown as SocialService };
+      phone.service = new SocialService({
+        identity, repository: storage.repo, name: () => `Test person ${index}`, scope: () => phone.scope,
+        location: () => phone.location, clock: () => now, random: randomBytes,
+        send: async (_peer, wire) => { queue.push({ receiver: 1 - index, peer: peers[1 - index], wire }); },
+        getRead: async () => 0, setRead: async () => {},
+        onChange: (people) => { phone.people = people; }, onError: (error) => { errors.push(error); },
+      });
+      return phone;
+    });
+    const drain = async () => {
+      let count = 0;
+      while (queue.length) {
+        assert.ok(++count < 100, "control traffic must settle");
+        const packet = queue.shift()!;
+        await phones[packet.receiver].service.receive(packet.peer, packet.wire);
+      }
+    };
+    const [a, b] = phones;
+    const render = screen(() => ({
+      nodeId: b.identity.nodeId, activeGroupId: b.scope,
+      groups: scope ? [{ id: scope, name: "Test group" }] : [], people: b.people,
+      requests: [], location: { source: "unavailable" }, locationPermission: "denied",
+      locationSharing: false, relayEnabled: true, relayRunning: true, bluetooth: "poweredOn",
+      map: { status: "ready", progress: 1, bundled: true }, internet: false,
+    }), () => now);
+    const marker = `data-point="person-${a.identity.nodeId}"`;
+    try {
+      await Promise.all(phones.map((phone) => phone.repo.initialize()));
+      await Promise.all(phones.map((phone, index) => phone.service.connect(peers[index])));
+      await drain();
+      assert.equal(b.people.find((person) => person.nodeId === a.identity.nodeId)?.connected, true);
+      assert.match(render(), /Message Test person 0\. Connected/);
+      assert.ok(!render().includes(marker), "identity alone must not invent a map coordinate");
+      a.location = { latitude: 47.655, longitude: -122.306, capturedAt: now };
+      await a.service.announceLocation(); await drain();
+      assert.ok(render().includes(marker), "signed received location must reach the actual PointAnnotation");
+      assert.ok(render().includes('data-coordinate="[-122.306,47.655]"'));
+      a.location = null;
+      now++;
+      await a.service.announceLocation(); await drain();
+      assert.ok(!render().includes(marker), "withdrawal removes pin");
+      assert.match(render(), /Message Test person 0\. Connected/);
+      a.location = { latitude: 47.655, longitude: -122.306, capturedAt: ++now };
+      await a.service.announceLocation(); await drain();
+      for (let index = 0; index < phones.length; index++) phones[index].service.disconnect(peers[index]);
+      await Promise.all(phones.map((phone) => phone.service.refresh()));
+      assert.ok(!render().includes(marker), "disconnect removes pin immediately");
+      assert.match(render(), /Message Test person 0\. Last seen/);
+      now++;
+      peers[0] = "c:new"; peers[1] = "p:new";
+      await Promise.all(phones.map((phone, index) => phone.service.connect(peers[index])));
+      await drain();
+      assert.ok(render().includes(marker), "fresh signed presence/location on new native session restores pin");
+      b.scope = scope ? null : "b".repeat(64);
+      b.service.reset(); await b.service.refresh();
+      assert.ok(!render().includes(marker));
+      assert.ok(!render().includes("Message Test person 0"), "other-audience people stay hidden");
+      assert.deepEqual(errors, []);
+    } finally {
+      await Promise.all(phones.map((phone) => phone.service.settle()));
+      for (const phone of phones) phone.close();
+    }
+  });
+}

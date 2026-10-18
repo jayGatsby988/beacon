@@ -607,3 +607,35 @@ test("denied location permission leaves messaging usable and sharing off", { tim
     assert.ok(a.service.state.requests.some((r) => r.id === request));
   } finally { await world.close(); }
 });
+
+test("locating yourself refreshes a stale map fix without sharing it with connected peers", { timeout: 10000 }, async () => {
+  const world = new World(false, true);
+  try {
+    const a = await world.open("a"), b = await world.open("b");
+    world.connect("a", "b"); await world.drain();
+    a.service.state.location = { source: "device", latitude: 1, longitude: 2, capturedAt: Date.now() - 180_000 };
+    const before = world.writes.length;
+    const fix = await a.service.state.locateOnMap();
+    await world.drain();
+    assert.equal(fix.latitude, 47.6551);
+    assert.equal(fix.longitude, -122.3035);
+    assert.ok(Date.now() - fix.capturedAt! < 1000);
+    assert.equal(a.service.state.locationSharing, false);
+    assert.ok(world.writes.slice(before).every(p => JSON.parse(p.wire).type !== "location"));
+    assert.equal(b.service.state.people.find(p => p.nodeId === a.service.state.nodeId)?.location, undefined);
+    fix.latitude = 9;
+    assert.equal(a.service.state.location.latitude, 47.6551, "map caller cannot mutate the stored fix");
+  } finally { await world.close(); }
+});
+
+test("local map location permission denial does not disable nearby or enable sharing", { timeout: 10000 }, async () => {
+  const world = new World();
+  try {
+    const a = await world.open("a");
+    await assert.rejects(a.service.state.locateOnMap(), /Allow location/);
+    assert.equal(a.service.state.locationSharing, false);
+    assert.equal(a.service.state.relayRunning, true);
+    a.emit("appState", "background");
+    await assert.rejects(a.service.state.locateOnMap(), /Open Beacon/);
+  } finally { await world.close(); }
+});

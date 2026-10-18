@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Linking,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import MapLibre, { type CameraRef } from "@maplibre/maplibre-react-native";
 import { LocateFixed, MapPin, MessageCircle, X } from "lucide-react-native";
 import { router } from "expo-router";
@@ -48,11 +55,43 @@ export function locationLabel(location: NearbyLocation, now: number) {
   return `${age}${location.accuracy != null && Number.isFinite(location.accuracy) ? ` · ±${Math.round(location.accuracy)} m` : ""}`;
 }
 
+function fitLocations(
+  camera: CameraRef | null,
+  coordinates: number[][],
+  fallback: number[],
+) {
+  if (!coordinates.length) {
+    camera?.setCamera({
+      centerCoordinate: fallback,
+      zoomLevel: 14.7,
+      animationDuration: 400,
+    });
+    return;
+  }
+  const longitudes = coordinates.map((point) => point[0]);
+  const latitudes = coordinates.map((point) => point[1]);
+  const west = Math.min(...longitudes),
+    east = Math.max(...longitudes);
+  const south = Math.min(...latitudes),
+    north = Math.max(...latitudes);
+  if (east - west < 0.0005 && north - south < 0.0005) {
+    camera?.setCamera({
+      centerCoordinate: coordinates[0],
+      zoomLevel: 16,
+      animationDuration: 400,
+    });
+  } else {
+    camera?.fitBounds([east, north], [west, south], [65, 55, 65, 55], 400);
+  }
+}
+
 export default function NearbyMap({
   ownLocation,
   pins,
+  connectedCount,
   internet,
   map,
+  onLocate,
   onSaveArea,
   onCancelSave,
   now,
@@ -60,8 +99,10 @@ export default function NearbyMap({
 }: {
   ownLocation: LocationReport;
   pins: NearbyPin[];
+  connectedCount: number;
   internet: boolean | null;
   map: MapState;
+  onLocate: () => Promise<LocationReport>;
   onSaveArea?: () => Promise<void>;
   onCancelSave?: () => Promise<void>;
   now: number;
@@ -70,6 +111,7 @@ export default function NearbyMap({
   const camera = useRef<CameraRef>(null);
   const [showOnline, setShowOnline] = useState(false);
   const [actionError, setActionError] = useState<string>();
+  const [locating, setLocating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedFailed, setSavedFailed] = useState(false);
   const [onlineFailed, setOnlineFailed] = useState(false);
@@ -78,6 +120,7 @@ export default function NearbyMap({
   const [viewCenter, setViewCenter] = useState<number[]>(CAMPUS_CENTER);
   const [selectedId, setSelectedId] = useState<string>();
   const centered = useRef(false);
+  const fittedPeers = useRef(false);
   const online = showOnline && internet === true && !onlineFailed;
   const saved =
     (map.status === "ready" || map.savedAvailable === true) &&
@@ -111,10 +154,6 @@ export default function NearbyMap({
   const outsideCoverage =
     !inCoverage(viewCenter) ||
     coordinates.some((coordinate) => !inCoverage(coordinate));
-  const ownLongitude = own?.longitude;
-  const ownLatitude = own?.latitude;
-  const firstLongitude = validPins[0]?.location.longitude;
-  const firstLatitude = validPins[0]?.location.latitude;
   useEffect(() => {
     setSavedFailed(false);
     setOfflineFailed(false);
@@ -129,45 +168,37 @@ export default function NearbyMap({
     return () => clearTimeout(timeout);
   }, [online, ready]);
   useEffect(() => {
-    if (!ready || centered.current) return;
-    const longitude = ownLongitude ?? firstLongitude;
-    const latitude = ownLatitude ?? firstLatitude;
-    if (longitude == null || latitude == null) return;
+    if (!ready || !coordinates.length) return;
+    if (centered.current && (fittedPeers.current || !validPins.length)) return;
+    fitLocations(camera.current, coordinates, areaCenter);
     centered.current = true;
-    camera.current?.setCamera({
-      centerCoordinate: [longitude, latitude],
-      zoomLevel: 16,
-      animationDuration: 450,
-    });
-  }, [ready, ownLongitude, ownLatitude, firstLongitude, firstLatitude]);
-  const recenter = () => {
-    if (!coordinates.length) {
-      camera.current?.setCamera({
-        centerCoordinate: areaCenter,
-        zoomLevel: 14.7,
-        animationDuration: 400,
-      });
-      return;
-    }
-    const longitudes = coordinates.map((point) => point[0]);
-    const latitudes = coordinates.map((point) => point[1]);
-    const west = Math.min(...longitudes),
-      east = Math.max(...longitudes);
-    const south = Math.min(...latitudes),
-      north = Math.max(...latitudes);
-    if (east - west < 0.0005 && north - south < 0.0005) {
-      camera.current?.setCamera({
-        centerCoordinate: coordinates[0],
-        zoomLevel: 16,
-        animationDuration: 400,
-      });
-    } else {
-      camera.current?.fitBounds(
-        [east, north],
-        [west, south],
-        [65, 55, 75, 55],
-        400,
+    if (validPins.length) fittedPeers.current = true;
+  }, [ready, coordinates, areaCenter, validPins.length]);
+  const recenter = async () => {
+    setLocating(true);
+    setActionError(undefined);
+    try {
+      const report = await onLocate();
+      const currentTime = Date.now();
+      const points = pins
+        .filter((pin) => freshLocation(pin.location, currentTime))
+        .map((pin) => [pin.location.longitude, pin.location.latitude]);
+      if (report.source === "device" && freshLocation(report, currentTime)) {
+        points.unshift([report.longitude, report.latitude]);
+      } else {
+        setActionError("Your location is unavailable. Try again.");
+      }
+      fitLocations(camera.current, points, areaCenter);
+      centered.current = true;
+      if (points.length > 1) fittedPeers.current = true;
+    } catch (error) {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "Could not find your location.",
       );
+    } finally {
+      setLocating(false);
     }
   };
   return (
@@ -184,11 +215,19 @@ export default function NearbyMap({
         ) : (
           <MapLibre.MapView
             key={
-              online ? "online" : saved ? `saved-${map.styleUrl}-${map.updatedAt ?? 0}` : "bundled"
+              online
+                ? "online"
+                : saved
+                  ? `saved-${map.styleUrl}-${map.updatedAt ?? 0}`
+                  : "bundled"
             }
             style={s.map}
             mapStyle={mapStyle}
-            onWillStartLoadingMap={() => setReady(false)}
+            onWillStartLoadingMap={() => {
+              setReady(false);
+              centered.current = false;
+              fittedPeers.current = false;
+            }}
             onDidFinishLoadingMap={() => setReady(true)}
             onRegionDidChange={(region) =>
               setViewCenter(region.geometry.coordinates)
@@ -252,19 +291,28 @@ export default function NearbyMap({
         <View pointerEvents="none" style={s.mapTag}>
           <View style={s.tagDot} />
           <Text style={s.tagText}>
-            {validPins.length
-              ? `${validPins.length} on the map`
-              : "No shared positions yet"}
+            {!online && outsideCoverage
+              ? "Map not saved here"
+              : validPins.length
+                ? `${validPins.length} on the map`
+                : connectedCount
+                  ? `${connectedCount} connected · no positions`
+                  : "No one connected yet"}
           </Text>
         </View>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Show all reported locations"
-          disabled={!ready}
-          onPress={recenter}
+          accessibilityLabel="Find my location and show nearby people"
+          accessibilityState={{ busy: locating, disabled: !ready || locating }}
+          disabled={!ready || locating}
+          onPress={() => void recenter()}
           style={({ pressed }) => [s.recenter, pressed && s.pressed]}
         >
-          <LocateFixed color={c.text} size={22} />
+          {locating ? (
+            <ActivityIndicator color={c.text} />
+          ) : (
+            <LocateFixed color={c.text} size={22} />
+          )}
         </Pressable>
         {bundled && (
           <Pressable
@@ -352,9 +400,7 @@ export default function NearbyMap({
               ]}
             >
               <Text style={s.actionText}>
-                {downloading
-                  ? "Cancel save"
-                  : "Save my area"}
+                {downloading ? "Cancel save" : "Save my area"}
               </Text>
             </Pressable>
           )}

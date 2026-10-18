@@ -152,6 +152,8 @@ export interface BeaconState {
   location: LocationReport;
   locationSharing: boolean;
   findingPeople: boolean;
+  /** Refresh local map position without enabling peer location sharing. */
+  locateOnMap(): Promise<LocationReport>;
   setLocationSharing(enabled: boolean): Promise<void>;
   findPeople(): Promise<void>;
   map: MapState;

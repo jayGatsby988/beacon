@@ -28,7 +28,7 @@ import {
 } from "@beacon/protocol";
 import BeaconBle, { type BlePeer } from "../../modules/beacon-ble";
 import { Repository, type EventRow } from "../storage/Repository";
-import type { BeaconState, EventView, RequestView } from "../ui/types";
+import type { BeaconState, EventView, LocationReport, RequestView } from "../ui/types";
 import { MapService } from "./MapService";
 import { SocialRepository } from "../storage/SocialRepository";
 import { SocialService } from "./SocialService";
@@ -142,6 +142,7 @@ export class BeaconService {
       location: { source: "unavailable" },
       locationSharing: false,
       findingPeople: false,
+      locateOnMap: this.locateOnMap,
       setLocationSharing: this.setLocationSharing,
       findPeople: this.findPeople,
       map: { status: "missing", progress: 0 },
@@ -795,6 +796,23 @@ export class BeaconService {
     return (this.locationPromise ??= this.refreshLocationOnce().finally(() => {
       this.locationPromise = undefined;
     }));
+  };
+  locateOnMap = async (): Promise<LocationReport> => {
+    if (this.disposed || !this.appActive) throw new Error("Open Beacon to find your location.");
+    const current = await Location.getForegroundPermissionsAsync();
+    if (this.disposed || !this.appActive) throw new Error("Open Beacon to find your location.");
+    const permission = current.status === "undetermined"
+      ? await Location.requestForegroundPermissionsAsync() : current;
+    if (this.disposed || !this.appActive) throw new Error("Open Beacon to find your location.");
+    this.update({ locationPermission: permission.status });
+    if (!permission.granted) throw new Error("Allow location in phone Settings to find yourself on the map.");
+    await this.refreshLocation();
+    if (this.disposed || !this.appActive) throw new Error("Open Beacon to find your location.");
+    const fix = this.state.location;
+    if (fix.source !== "device" || fix.capturedAt == null ||
+        Date.now() - fix.capturedAt >= LOCATION_LIMITS.ttlMs || fix.capturedAt > Date.now() + LOCATION_LIMITS.futureSkewMs)
+      throw new Error("GPS is unavailable. Move near a window or outdoors and try again.");
+    return { ...fix };
   };
   private sharedLocation() {
     const fix = this.state.location;
