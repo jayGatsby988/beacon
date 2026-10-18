@@ -1,18 +1,23 @@
 import { useWindowDimensions } from "react-native";
 import { Tabs } from "expo-router";
-import { HeartHandshake, RadioTower } from "lucide-react-native";
+import { Users, RadioTower } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBeacon } from "../../src/services/BeaconContext";
 import { colors as c, fonts } from "../../src/theme/tokens";
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const { fontScale } = useWindowDimensions();
-  const { requests } = useBeacon();
-  const nearbyCount = requests.filter(
+  const { requests, people, activeGroupId } = useBeacon();
+  const requestCount = requests.filter(
     (request) =>
       !request.mine &&
+      (request.groupId ?? null) === activeGroupId &&
       (request.status === "active" || request.status === "accepted"),
   ).length;
+  const unreadCount = people
+    .filter((person) => person.scope === activeGroupId)
+    .reduce((sum, person) => sum + person.unreadCount, 0);
+  const nearbyCount = requestCount + unreadCount;
   return (
     <Tabs
       screenOptions={{
@@ -47,17 +52,17 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="nearby"
         options={{
-          title: "Help nearby",
+          title: "Nearby",
           tabBarAccessibilityLabel: nearbyCount
-            ? `Help nearby, ${nearbyCount} active ${nearbyCount === 1 ? "request" : "requests"}`
-            : "Help nearby",
-          tabBarBadge: nearbyCount || undefined,
+            ? `Nearby, ${requestCount} active requests, ${unreadCount} unread messages`
+            : "Nearby",
+          tabBarBadge: nearbyCount > 99 ? "99+" : nearbyCount || undefined,
           tabBarBadgeStyle: {
             backgroundColor: c.text,
             color: c.background,
             fontFamily: fonts.medium,
           },
-          tabBarIcon: ({ color }) => <HeartHandshake size={24} color={color} />,
+          tabBarIcon: ({ color }) => <Users size={24} color={color} />,
         }}
       />
     </Tabs>

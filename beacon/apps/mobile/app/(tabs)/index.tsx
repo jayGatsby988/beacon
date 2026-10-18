@@ -24,8 +24,12 @@ export default function Home() {
   const [note, setNote] = useState("");
   const [place, setPlace] = useState("");
   const action = useAction();
+  const group = b.groups.find((g) => g.id === b.activeGroupId);
   const active = b.requests.find(
-    (r) => r.mine && (r.status === "active" || r.status === "accepted"),
+    (r) =>
+      r.mine &&
+      (r.groupId ?? null) === b.activeGroupId &&
+      (r.status === "active" || r.status === "accepted"),
   );
   const connected = b.peers.filter((p) => p.state === "connected").length;
   const send = () =>
@@ -47,6 +51,24 @@ export default function Home() {
             : "Connection"
       }
     >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Sharing with ${group?.name || (b.activeGroupId ? "Private group" : "Nearby")}. Change group`}
+        onPress={() => router.push("/groups")}
+        style={{
+          minHeight: 48,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          alignSelf: "flex-start",
+          maxWidth: "100%",
+        }}
+      >
+        <Text style={[shared.smallTitle, { flexShrink: 1 }]}>
+          {group?.name || (b.activeGroupId ? "Private group" : "Nearby")}
+        </Text>
+        <ChevronDown size={20} color={c.secondary} />
+      </Pressable>
       <Heading>{active ? "Your SOS" : "I need help"}</Heading>
       {active ? (
         <RequestCard request={active} />
