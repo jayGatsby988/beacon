@@ -410,6 +410,57 @@ test(
   },
 );
 
+test("stale offer actions cannot replace an accepted helper, and duplicates stay idempotent after restart", { timeout: 10000 }, async () => {
+  const world = new World();
+  try {
+    let requester = await world.open("requester");
+    const first = await world.open("first"),
+      second = await world.open("second"),
+      late = await world.open("late");
+    const id = await requester.service.state.sendSOS();
+    for (const name of ["first", "second", "late"]) world.connect("requester", name);
+    await world.drain();
+    await first.service.state.offerHelp(id, "first offer");
+    await second.service.state.offerHelp(id, "second offer");
+    await world.drain();
+    const offers = requester.service.state.requests.find((r) => r.id === id)!.offers;
+    const firstOffer = offers.find((offer) => offer.nodeId === first.service.state.nodeId)!;
+    const secondOffer = offers.find((offer) => offer.nodeId === second.service.state.nodeId)!;
+    const results = await Promise.allSettled([
+      requester.service.state.acceptOffer(id, firstOffer.id),
+      requester.service.state.acceptOffer(id, firstOffer.id),
+      requester.service.state.acceptOffer(id, secondOffer.id),
+    ]);
+    assert.deepEqual(results.map((result) => result.status), ["fulfilled", "fulfilled", "rejected"]);
+    assert.match((results[2] as PromiseRejectedResult).reason.message, /already been accepted/);
+    await world.drain();
+    const before = await requester.databases.get("beacon.db")!.getAllAsync<{ envelope: string }>(
+      "SELECT envelope FROM messages WHERE request_id=? AND type='accept'", id,
+    );
+    assert.equal(before.length, 1, "duplicate taps must not create a fresh assignment or revision");
+    assert.equal(requester.service.state.requests.find((r) => r.id === id)?.acceptedOfferId, firstOffer.id);
+    assert.equal(requester.service.state.requests.find((r) => r.id === id)?.offers.find((offer) => offer.id === firstOffer.id)?.assignmentReceived, true);
+    const lateBefore = await late.databases.get("beacon.db")!.getFirstAsync<{ n: number }>("SELECT COUNT(*) n FROM messages");
+    await assert.rejects(late.service.state.offerHelp(id), /already been accepted/);
+    await first.service.state.offerHelp(id, "ignored duplicate");
+    const lateAfter = await late.databases.get("beacon.db")!.getFirstAsync<{ n: number }>("SELECT COUNT(*) n FROM messages");
+    assert.deepEqual(lateAfter, lateBefore, "rejected late offers create no receipt or offer");
+    assert.equal(first.service.state.requests.find((r) => r.id === id)?.offers.filter((offer) => offer.nodeId === first.service.state.nodeId).length, 1);
+
+    requester = await world.restart("requester");
+    await requester.service.state.acceptOffer(id, firstOffer.id);
+    await assert.rejects(requester.service.state.acceptOffer(id, secondOffer.id), /already been accepted/);
+    const after = await requester.databases.get("beacon.db")!.getAllAsync<{ envelope: string }>(
+      "SELECT envelope FROM messages WHERE request_id=? AND type='accept'", id,
+    );
+    assert.deepEqual(after, before, "reopening the persisted request preserves the original confirmed assignment");
+    await requester.service.state.completeRequest(id);
+    await assert.rejects(requester.service.state.acceptOffer(id, firstOffer.id), /closed or expired/);
+  } finally {
+    await world.close();
+  }
+});
+
 test(
   "switching group and Nearby cannot move queued SOS across scopes, including old native packets",
   { timeout: 10000 },

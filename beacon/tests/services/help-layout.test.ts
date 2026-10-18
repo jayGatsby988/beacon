@@ -272,7 +272,7 @@ test("Help reports absence of received requests without claiming absence of peop
 });
 
 
-test("request details accept the named offer directly and show location before actions", async () => {
+test("request details accept the named offer directly and show help offers before the reported location", async () => {
   const offers = ["Alex", "Jordan"].map((name) => ({ id: `offer-${name}`, nodeId: `node-${name}`, name, createdAt: 100, accepted: false, assignmentReceived: false }));
   const r = request("own-request", null, { mine: true, offers, location: { source: "device", latitude: 47.65, longitude: -122.30, capturedAt: 100, place: "North entrance" } });
   const b = state([r]);
@@ -282,7 +282,7 @@ test("request details accept the named offer directly and show location before a
   const html = ui.render();
   assert.match(html, /North entrance/);
   assert.match(html, /Not live/);
-  assert.ok(html.indexOf("North entrance") < html.indexOf("Accept Alex"));
+  assert.ok(html.indexOf("Accept Alex") < html.indexOf("North entrance"));
   assert.deepEqual(accepted, [], "rendering must not accept the first offer implicitly");
   assert.equal(ui.hasAction("Accept offer"), false, "no detached selection action");
   await ui.press("Accept Jordan");
@@ -307,6 +307,46 @@ test("request details never expose accept actions for another requester or a clo
     ui.render();
     assert.equal(ui.hasAction("Accept Alex"), false);
   }
+});
+
+test("accepted requester can message only a known contact in the request's current audience", () => {
+  const offer = { id: "offer", nodeId: "helper", name: "Alex", createdAt: 100, accepted: true, assignmentReceived: true };
+  const r = request("accepted-request", null, { mine: true, status: "accepted", offers: [offer], acceptedOfferId: offer.id });
+  const b = state([r]);
+  const person: PersonView = { nodeId: "helper", publicKey: "helper-key", name: "Alex", scope: "other-group", connected: true, lastSeenAt: 100, unreadCount: 0 };
+  b.people = [person];
+  const ui = helpScreen(() => b, r.id);
+  assert.match(ui.render(), /Connect with Alex nearby to start a chat/);
+  assert.equal(ui.hasAction("Message Alex"), false, "a contact in another audience cannot make this route valid");
+  person.scope = null;
+  person.connected = false;
+  assert.match(ui.render(), /Messages stay queued until you reconnect nearby/);
+  assert.equal(ui.hasAction("Message Alex"), true, "known disconnected contacts can queue messages");
+  ui.press("Message Alex");
+  assert.deepEqual(ui.routes, ["/chat/helper"]);
+  b.activeGroupId = "other-group";
+  ui.render();
+  assert.equal(ui.hasAction("Message Alex"), false);
+  b.activeGroupId = null;
+  for (const status of ["active", "completed", "canceled", "expired"] as const) {
+    r.status = status;
+    ui.render();
+    assert.equal(ui.hasAction("Message Alex"), false);
+  }
+});
+
+test("only the accepted helper receives the requester's direct message action", () => {
+  const offer = { id: "offer", nodeId: "self", name: "You", createdAt: 100, accepted: true, assignmentReceived: true };
+  const r = request("accepted-request", null, { name: "Quinn", status: "accepted", offers: [offer], acceptedOfferId: offer.id });
+  const b = state([r]);
+  b.people = [{ nodeId: r.originNodeId, publicKey: "requester-key", name: "Quinn", scope: null, connected: true, lastSeenAt: 100, unreadCount: 0 }];
+  const ui = helpScreen(() => b, r.id);
+  ui.render();
+  ui.press("Message Quinn");
+  assert.deepEqual(ui.routes, [`/chat/${r.originNodeId}`]);
+  b.nodeId = "another-helper";
+  ui.render();
+  assert.equal(ui.hasAction("Message Quinn"), false);
 });
 
 

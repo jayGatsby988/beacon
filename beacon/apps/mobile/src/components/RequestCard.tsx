@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { ChevronRight, HeartHandshake, MapPin, Radio } from "lucide-react-native";
 import { router } from "expo-router";
 import type { RequestView } from "../ui/types";
@@ -39,45 +39,48 @@ export function requestStatus(request: RequestView): string {
 export function RequestCard({ request, showOffer = false }: { request: RequestView; showOffer?: boolean }) {
   const b = useBeacon();
   const action = useAction();
+  const { width, fontScale } = useWindowDimensions();
+  const incoming = showOffer && !request.mine;
+  const stacked = width < 350 || fontScale >= 1.3;
   const myOffer = request.offers.find((offer) => offer.nodeId === b.nodeId);
   const canOffer = showOffer && !request.mine && request.status === "active" && !request.acceptedOfferId && !myOffer;
   const status = myOffer && request.status === "active" ? "Offer saved · awaiting acceptance" : requestStatus(request);
   const name = request.mine ? "You" : request.name || "Participant";
-  const completed = request.status === "completed";
+  const openDetails = () => router.push(`/request/${request.id}`);
   return (
-    <View style={[s.card, completed && s.completed]}>
+    <View style={s.card}>
+      <View style={[s.cardLayout, incoming && !stacked && s.incomingRow]}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${categoryNames[request.category]}, ${name}, ${status}. Open request.`}
-        onPress={() => router.push(`/request/${request.id}`)}
-        style={({ pressed }) => [s.content, pressed && { opacity: 0.7 }]}
+        onPress={openDetails}
+        style={({ pressed }) => [s.content, incoming && !stacked && s.incomingContent, pressed && { opacity: 0.7 }]}
       >
         <View style={s.topRow}>
-          <View style={[s.symbol, completed && { backgroundColor: "#DCE1E4" }, request.mine && !completed && s.sosSymbol]}>
-            {request.mine ? <Radio color={completed ? c.background : c.redLabel} size={20} /> : <HeartHandshake color={completed ? c.background : c.secondary} size={20} />}
+          {!incoming && <View style={s.symbol}>
+            {request.mine ? <Radio color={c.red} size={21} /> : <HeartHandshake color={c.text} size={21} />}
+          </View>}
+          <View style={s.details}>
+            <Text style={s.title}>{request.mine ? categoryNames[request.category] : `${name} needs help`}</Text>
+            <Text style={styles.caption}>{request.mine ? "You" : categoryNames[request.category]} · {age(request.updatedAt)}</Text>
+            {!!request.note && <Text style={s.note}>{request.note}</Text>}
+            {(!!request.location.place || request.location.latitude != null) && (
+              <View style={s.location}>
+                <MapPin color={c.secondary} size={14} />
+                <Text style={[styles.caption, s.flexText]}>{request.location.place || "Shared coordinates"}</Text>
+              </View>
+            )}
+            {(request.mine || myOffer || request.status !== "active") && (
+              <Text style={s.status} accessibilityLiveRegion="polite">{status}</Text>
+            )}
+            {request.mine && request.status === "active" && (
+              <Text style={styles.caption}>{request.offers.length ? `${request.offers.length} ${request.offers.length === 1 ? "offer" : "offers"} to review` : "No offers yet"}</Text>
+            )}
+            {request.pendingUpdate && <Text style={styles.caption}>Update waiting to be shared.</Text>}
+            {request.mine && <Text style={s.openLabel}>View SOS & offers</Text>}
           </View>
-          <View style={{ flex: 1, gap: 3 }}>
-            <Text style={[s.title, completed && s.darkText]}>{categoryNames[request.category]}</Text>
-            <Text style={[styles.caption, completed && s.darkText]}>{name} · {age(request.updatedAt)}</Text>
-          </View>
-          <ChevronRight color={completed ? c.background : c.muted} size={19} />
+          {!incoming && <ChevronRight color={c.secondary} size={19} />}
         </View>
-        {!!request.note && <Text numberOfLines={2} style={[s.note, completed && s.darkText]}>{request.note}</Text>}
-        <Text style={[s.status, request.mine && !completed && { color: c.redLabel }, completed && s.darkText]} accessibilityLiveRegion="polite">{status}</Text>
-        {request.mine && request.status === "active" && (
-          <View style={s.progress}>
-            <Text style={styles.caption}>Saved on this phone</Text>
-            <Text style={s.offerCount}>{request.offers.length ? `${request.offers.length} ${request.offers.length === 1 ? "offer" : "offers"} · review` : "No offers yet"}</Text>
-          </View>
-        )}
-        {(!!request.location.place || request.location.latitude != null) && (
-          <View style={s.location}>
-            <MapPin color={completed ? c.background : c.muted} size={14} />
-            <Text numberOfLines={2} style={[styles.caption, { flex: 1 }, completed && s.darkText]}>{request.location.place || "Shared coordinates"}</Text>
-          </View>
-        )}
-        {request.pendingUpdate && <Text style={[styles.caption, completed && s.darkText]}>Update waiting to be shared.</Text>}
-        {request.mine && !completed && <Text style={s.openLabel}>View SOS & offers</Text>}
       </Pressable>
       {canOffer && (
         <Pressable
@@ -86,32 +89,33 @@ export function RequestCard({ request, showOffer = false }: { request: RequestVi
           accessibilityState={{ disabled: action.busy, busy: action.busy }}
           disabled={action.busy}
           onPress={() => action.run(() => b.offerHelp(request.id))}
-          style={({ pressed }) => [s.offerButton, (pressed || action.busy) && { opacity: 0.6 }]}
+          style={({ pressed }) => [s.offerButton, !stacked && s.offerButtonSide, (pressed || action.busy) && { opacity: 0.6 }]}
         >
-          <HeartHandshake size={18} color={c.text} />
           <Text style={s.offerLabel}>{action.busy ? "Saving offer…" : "Offer help"}</Text>
         </Pressable>
       )}
-      {action.error && <View style={{ padding: 16, paddingTop: 0 }}><ErrorNotice message={action.error} /></View>}
+      </View>
+      {action.error && <ErrorNotice message={action.error} />}
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  card: { borderRadius: 16, borderWidth: 1, borderColor: c.border, backgroundColor: c.card, overflow: "hidden" },
-  completed: { backgroundColor: c.text, borderColor: c.text },
-  content: { padding: 16, gap: 12, minHeight: 48 },
-  topRow: { flexDirection: "row", alignItems: "center", gap: 11 },
-  symbol: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: c.raised },
-  sosSymbol: { backgroundColor: "#342027" },
+  card: { borderBottomWidth: 1, borderColor: c.border, paddingVertical: 16 },
+  cardLayout: { gap: 8 },
+  incomingRow: { flexDirection: "row", alignItems: "center", gap: 20 },
+  incomingContent: { flex: 1 },
+  content: { minHeight: 48 },
+  topRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  symbol: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: c.raised },
+  details: { flex: 1, gap: 5 },
+  flexText: { flex: 1 },
   title: { fontFamily: fonts.medium, color: c.text, fontSize: 17, lineHeight: 24 },
   note: { fontFamily: fonts.body, fontSize: 15, lineHeight: 22, color: c.secondary },
   status: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 20, color: c.secondary },
-  darkText: { color: c.background },
-  progress: { borderTopWidth: 1, borderTopColor: c.border, paddingTop: 12, gap: 5 },
-  offerCount: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 21, color: c.text },
-  location: { flexDirection: "row", alignItems: "center", gap: 6 },
+  location: { flexDirection: "row", alignItems: "flex-start", gap: 6 },
   openLabel: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 21, color: c.text },
-  offerButton: { minHeight: 48, marginHorizontal: 16, marginBottom: 16, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.raised, padding: 13, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
-  offerLabel: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 20, color: c.text },
+  offerButton: { minHeight: 44, alignSelf: "flex-start", paddingVertical: 8, justifyContent: "center" },
+  offerButtonSide: { alignSelf: "center", maxWidth: "38%" },
+  offerLabel: { fontFamily: fonts.medium, fontSize: 15, lineHeight: 22, color: c.text, flexShrink: 1 },
 });

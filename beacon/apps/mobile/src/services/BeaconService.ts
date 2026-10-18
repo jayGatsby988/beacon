@@ -1123,6 +1123,8 @@ export class BeaconService {
       if (r.requesterId === this.state.nodeId)
         throw new Error("You cannot offer help to your own request.");
       if (r.offers.some((o) => o.helperId === this.state.nodeId)) return;
+      if (r.status !== "open")
+        throw new Error("Help has already been accepted for this request.");
       await this.mesh().acknowledge(r.messageId);
       await this.publish({
         type: "offer",
@@ -1141,6 +1143,10 @@ export class BeaconService {
         throw new Error("Only the requester can accept an offer.");
       const offer = r.offers.find((o) => o.id === offerId);
       if (!offer) throw new Error("Offer no longer available.");
+      // Repeated taps or a reopened screen must not create a new assignment.
+      if (r.assignment?.offerId === offerId) return;
+      if (r.status !== "open")
+        throw new Error("Help has already been accepted for this request.");
       await this.publish({
         type: "accept",
         requestId: id,
