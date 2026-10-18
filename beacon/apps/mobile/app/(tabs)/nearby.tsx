@@ -9,12 +9,12 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { ChevronRight, MapPin, Users } from "lucide-react-native";
+import { ChevronRight, Users } from "lucide-react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useBeacon } from "../../src/services/BeaconContext";
 import { ErrorNotice, Screen, age, useAction } from "../../src/components/ui";
 import AudiencePicker from "../../src/components/AudiencePicker";
-import NearbyMap, { freshLocation, locationLabel } from "../../src/components/NearbyMap";
+import NearbyMap, { freshLocation, locationRefreshDelay } from "../../src/components/NearbyMap";
 import { colors as c, fonts } from "../../src/theme/tokens";
 import { keepMapLocationFresh } from "../../src/services/mapLocationRefresh";
 
@@ -34,16 +34,6 @@ export default function Nearby() {
   const [mapFocusRevision, setMapFocusRevision] = useState(0);
   const findAction = useAction();
   const shareAction = useAction();
-  useFocusEffect(
-    useCallback(() => {
-      setNow(Date.now());
-      const clock = setInterval(
-        () => setNow(Date.now()),
-        mode === "map" ? 1000 : 30_000,
-      );
-      return () => clearInterval(clock);
-    }, [mode]),
-  );
   const { locationPermission, refreshLocation } = b;
   useFocusEffect(
     useCallback(() => {
@@ -76,7 +66,20 @@ export default function Nearby() {
         ),
     [b.people, b.nodeId, b.activeGroupId],
   );
-  const connected = people.filter((person) => person.connected);
+  const connected = useMemo(() => people.filter((person) => person.connected), [people]);
+  const clockLocations = useMemo(() => [b.location, ...connected.map((person) => person.location)], [b.location, connected]);
+  useFocusEffect(
+    useCallback(() => {
+      let clock: ReturnType<typeof setTimeout>;
+      const tick = () => {
+        const current = Date.now();
+        setNow(current);
+        clock = setTimeout(tick, mode === "map" ? locationRefreshDelay(clockLocations, current) : 30_000);
+      };
+      tick();
+      return () => clearTimeout(clock);
+    }, [mode, clockLocations]),
+  );
   const pins = connected.flatMap((person) =>
     freshLocation(person.location, now)
       ? [
@@ -195,12 +198,6 @@ export default function Nearby() {
                           ? "Connected"
                           : `Last seen ${age(person.lastSeenAt)}`}
                       </Text>
-                      {person.connected && freshLocation(person.location, now) && (
-                        <View style={s.locationMeta}>
-                          <MapPin size={12} color={c.secondary} />
-                          <Text style={s.locationText}>Position · {locationLabel(person.location, now)}</Text>
-                        </View>
-                      )}
                     </View>
                   </View>
                   <Pressable
@@ -348,8 +345,6 @@ const s = StyleSheet.create({
     borderBottomColor: c.border,
   },
   personInfo: { flexDirection: "row", alignItems: "center", flex: 1, gap: 12, minWidth: 0 },
-  locationMeta: { flexDirection: "row", alignItems: "center", gap: 4 },
-  locationText: { fontFamily: fonts.body, fontSize: 12, lineHeight: 18, color: c.secondary, flexShrink: 1 },
   avatar: {
     width: 48,
     height: 48,

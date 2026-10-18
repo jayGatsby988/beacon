@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, Linking, Pressable } from "react-native";
 import MapLibre from "@maplibre/maplibre-react-native";
 import type { LocationReport, MapState } from "../ui/types";
@@ -6,7 +6,7 @@ import { CAMPUS_BOUNDS, campusStyle } from "../components/campusMapStyle";
 import { colors as c, fonts } from "../theme/tokens";
 const OFFLINE_STYLE = JSON.stringify(campusStyle);
 
-export default function RequestMap({
+function RequestMap({
   location,
   map,
 }: {
@@ -27,6 +27,14 @@ export default function RequestMap({
   const bounds = saved && map.bounds ? map.bounds : CAMPUS_BOUNDS;
   const longitude = location.longitude,
     latitude = location.latitude;
+  // MapLibre sends a new native camera stop whenever centerCoordinate changes
+  // identity. Unrelated request/receipt updates must not reset a user's map pan.
+  const center = useMemo(() => [longitude ?? 0, latitude ?? 0], [longitude, latitude]);
+  const shape = useMemo(() => ({
+    type: "Feature" as const,
+    geometry: { type: "Point" as const, coordinates: center },
+    properties: {},
+  }), [center]);
   const within =
     longitude != null &&
     latitude != null &&
@@ -54,7 +62,7 @@ export default function RequestMap({
   return (
     <View style={{ flex: 1 }}>
       <MapLibre.MapView
-        style={{ flex: 1 }}
+        style={s.map}
         key={saved ? `${map.styleUrl}-${map.updatedAt ?? 0}` : "bundled"}
         mapStyle={saved ? map.styleUrl : OFFLINE_STYLE}
         onDidFailLoadingMap={() =>
@@ -67,25 +75,16 @@ export default function RequestMap({
         pitchEnabled={false}
       >
         <MapLibre.Camera
-          centerCoordinate={[longitude!, latitude!]}
+          centerCoordinate={center}
           zoomLevel={16}
         />
         <MapLibre.ShapeSource
           id="reported-location"
-          shape={{
-            type: "Feature",
-            geometry: { type: "Point", coordinates: [longitude!, latitude!] },
-            properties: {},
-          }}
+          shape={shape}
         >
           <MapLibre.CircleLayer
             id="reported-location-dot"
-            style={{
-              circleRadius: 8,
-              circleColor: c.text,
-              circleStrokeColor: c.background,
-              circleStrokeWidth: 4,
-            }}
+            style={REPORTED_POINT_STYLE}
           />
         </MapLibre.ShapeSource>
       </MapLibre.MapView>
@@ -113,7 +112,10 @@ export default function RequestMap({
     </View>
   );
 }
+export default memo(RequestMap);
+const REPORTED_POINT_STYLE = { circleRadius: 8, circleColor: c.text, circleStrokeColor: c.background, circleStrokeWidth: 4 };
 const s = StyleSheet.create({
+  map: { flex: 1 },
   empty: {
     flex: 1,
     backgroundColor: c.background,
