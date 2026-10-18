@@ -1,0 +1,146 @@
+{
+  "recordedAt": "2026-10-18T08:42:15.403623+00:00",
+  "issues": [
+    "Original bundled coverage excluded the phones recent reported position.",
+    "Nearby camera remained at its old position after a focus-triggered GPS refresh.",
+    "Saved-map absolute paths could become stale after an iOS container move."
+  ],
+  "before": {
+    "recordedAt": "2026-10-18T08:23:10Z",
+    "scope": "Read-only snapshots before map repair installation; no coordinates, identifiers, message contents or secrets retained here.",
+    "phones": [
+      {
+        "model": "iPhone 17 Pro Max",
+        "requestDatabaseIntegrity": "ok",
+        "socialDatabaseIntegrity": "ok",
+        "nearbyEnabled": true,
+        "audience": "public",
+        "knownPeople": 2,
+        "latestPresenceUtc": "2026-10-18T08:20:30.055000+00:00",
+        "map": "UW campus bundled geometry only; no saved-area file",
+        "appProcessRunning": true
+      },
+      {
+        "model": "iPhone 18 Pro Max",
+        "requestDatabaseIntegrity": "ok",
+        "socialDatabaseIntegrity": "ok",
+        "nearbyEnabled": true,
+        "audience": "public",
+        "knownPeople": 2,
+        "latestPresenceUtc": "2026-10-18T08:20:30.690000+00:00",
+        "map": "UW campus bundled geometry only; no saved-area file",
+        "appProcessRunning": true
+      }
+    ]
+  },
+  "validation": {
+    "tests": 159,
+    "passed": 159,
+    "failed": 0,
+    "skipped": 0,
+    "mobileAndApiTypecheck": true,
+    "lint": true,
+    "actualLocalTimescaleHttp": true,
+    "iosReleaseBuild": true,
+    "strictSignatureVerified": true,
+    "profileMatchesBothDevices": true,
+    "profileExpirationUtc": "2026-10-25T05:51:22Z",
+    "profileMatchesAllThreeDevices": true
+  },
+  "artifact": {
+    "bundleId": "org.beacon.community.dev",
+    "bundleBytes": 11081024,
+    "bundleSha256": "b45cc685b682c991e58fd06c07f8967b08a03e929f4cf3096b9944f09d8fdf63",
+    "executableSha256": "8c948a4ac4f2167cf9d71a1292f9964e9fa4d2ff2157417922be5f88bd9e7c34",
+    "bundleTimeUtc": "2026-10-18T08:39:40.638455+00:00",
+    "checkedSourceFiles": 121,
+    "newerSources": []
+  },
+  "bundledMap": {
+    "checkedAt": "2026-10-18T08:38:54.826755Z",
+    "asset": "apps/mobile/assets/maps/uw-campus.json",
+    "source": "OpenStreetMap contributors",
+    "license": "ODbL-1.0",
+    "provider": "https://overpass.private.coffee/api/interpreter",
+    "retrievedAt": "2026-10-18T08:08:26.389000Z",
+    "provenance": "Existing successful public UW-area Overpass response; no new network request for bundle expansion. Original feature coordinates and properties preserved byte-for-byte under JSON serialization.",
+    "coverageBounds": [
+      -122.3193611797981,
+      47.646,
+      -122.2926388202019,
+      47.664
+    ],
+    "geometryExtent": [
+      -122.3221289,
+      47.6432543,
+      -122.2905959,
+      47.6708518
+    ],
+    "coverageNote": "metadata.coverageBounds is the requested coverage rectangle; GeoJSON bbox encloses all complete OSM ways, including those extending outside requested coverage.",
+    "features": 7027,
+    "positions": 39426,
+    "rings": 1309,
+    "geometryCounts": {
+      "LineString/road": 5718,
+      "Polygon/water": 11,
+      "Polygon/building": 1238,
+      "Polygon/park": 60
+    },
+    "sha256": "e08fa33e62ec7bbffb9575c4de69713feccc569d88288c9b6a3e34913bb09757",
+    "bytes": 1700952,
+    "validatorPackage": "@maplibre/maplibre-gl-style-spec",
+    "validatorVersion": "26.4.4",
+    "styleErrors": [],
+    "geometryErrors": [],
+    "networkRenderingResources": [],
+    "limitations": "Static roads, buildings, parks and water geometry; no street labels or routing. Native rendering validation is separate. This does not establish that online Save my area works."
+  },
+  "actualSimulator": {
+    "freshLocalGpsPin": true,
+    "locateDoesNotEnableSharing": true,
+    "outsideCoveragePinVisibleWithLocate": true,
+    "staleCameraOnReturningToNearbyReproduced": true,
+    "cameraRefitsFreshFixAfterRepair": true,
+    "expandedGeometryVisibleAtPointOutsideOldCoverage": true,
+    "networkRenderingResourcesRequired": false,
+    "hostNetworkDisabled": false,
+    "physicalBluetoothPinsVerified": false,
+    "bundledAreaRestartVerified": true,
+    "bundledAreaRestartEvidence": "The genuine simulator app process was terminated and relaunched without reinstall or map-file injection. Nearby rendered expanded bundled streets and the local You pin; Locate refreshed the pin after expiry, with sharing off. See docs/SIMULATOR_UI_VALIDATION.md and docs/screenshots/simplified/nearby-expanded-restart.png.",
+    "metadataCorrectionNote": "Native rendering used identical feature geometry before the nonvisual correction separating metadata.coverageBounds from the encompassing GeoJSON bbox."
+  },
+  "onlineAreaSave": {
+    "actualNativeSucceeded": false,
+    "firstProvider": "HTTP 500",
+    "fallback": "network AbortError after bounded timeout",
+    "hostGetSucceeded": true,
+    "identityEncodingHypothesis": "did not fix native request; reverted",
+    "downloadedAreaRestartVerified": false
+  },
+  "installations": [
+    {
+      "model": "iPhone 17 Pro Max",
+      "installed": true,
+      "remoteLaunch": "initial Security rejection",
+      "manualOpen": "user reports open",
+      "latestInstalledProcessRunning": true
+    },
+    {
+      "model": "iPhone 18 Pro Max",
+      "installed": true,
+      "remoteLaunch": "initial Security rejection",
+      "manualOpen": "user reports open",
+      "latestInstalledProcessRunning": true
+    },
+    {
+      "model": "iPhone 17 Pro",
+      "installed": true,
+      "remoteLaunch": "successful",
+      "latestInstalledProcessRunning": true
+    }
+  ],
+  "remainingChecks": [
+    "Paired physical map-pin visibility with explicit location sharing on both phones.",
+    "Successful native save and restart for areas outside the bundled UW coverage."
+  ]
+}

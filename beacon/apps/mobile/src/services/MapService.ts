@@ -3,17 +3,15 @@ import * as FileSystem from "expo-file-system/legacy";
 import type { Repository } from "../storage/Repository";
 import type { LocationReport, MapState } from "../ui/types";
 import campus from "../../assets/maps/uw-campus.json";
-import { campusStyle } from "../components/campusMapStyle";
+import { CAMPUS_BOUNDS, campusStyle } from "../components/campusMapStyle";
 
-export const CAMPUS_BOUNDS: [number, number, number, number] = [
-  -122.313, 47.65, -122.299, 47.66,
-];
+export { CAMPUS_BOUNDS } from "../components/campusMapStyle";
 export const CAMPUS_MAP: MapState = {
   status: "ready",
   progress: 1,
   name: "UW campus · bundled geometry",
   bytes: JSON.stringify(campus).length,
-  updatedAt: Date.parse("2026-10-17T20:02:22-07:00"),
+  updatedAt: Date.parse(campus.metadata.retrievedAt),
   bundled: true,
   bounds: CAMPUS_BOUNDS,
 };

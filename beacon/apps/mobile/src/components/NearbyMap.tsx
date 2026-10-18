@@ -13,11 +13,10 @@ import { router } from "expo-router";
 import { LOCATION_LIMITS } from "@beacon/protocol";
 import type { LocationReport, MapState } from "../ui/types";
 import { colors as c, fonts } from "../theme/tokens";
-import { campusStyle } from "./campusMapStyle";
+import { CAMPUS_BOUNDS, campusStyle } from "./campusMapStyle";
 
 const ONLINE_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const CAMPUS_CENTER = [-122.306, 47.655];
-const CAMPUS_BOUNDS = [-122.313, 47.65, -122.299, 47.66];
 const OFFLINE_STYLE = JSON.stringify(campusStyle);
 export type NearbyLocation = {
   latitude: number;
@@ -87,6 +86,7 @@ function fitLocations(
 
 export default function NearbyMap({
   ownLocation,
+  focusRevision,
   pins,
   connectedCount,
   internet,
@@ -98,6 +98,7 @@ export default function NearbyMap({
   height,
 }: {
   ownLocation: LocationReport;
+  focusRevision: number;
   pins: NearbyPin[];
   connectedCount: number;
   internet: boolean | null;
@@ -121,6 +122,7 @@ export default function NearbyMap({
   const [selectedId, setSelectedId] = useState<string>();
   const centered = useRef(false);
   const fittedPeers = useRef(false);
+  const fittedFocusRevision = useRef(-1);
   const online = showOnline && internet === true && !onlineFailed;
   const saved =
     (map.status === "ready" || map.savedAvailable === true) &&
@@ -169,11 +171,18 @@ export default function NearbyMap({
   }, [online, ready]);
   useEffect(() => {
     if (!ready || !coordinates.length) return;
-    if (centered.current && (fittedPeers.current || !validPins.length)) return;
+    const focusNeedsFit = fittedFocusRevision.current !== focusRevision;
+    if (
+      !focusNeedsFit &&
+      centered.current &&
+      (fittedPeers.current || !validPins.length)
+    )
+      return;
     fitLocations(camera.current, coordinates, areaCenter);
     centered.current = true;
+    fittedFocusRevision.current = focusRevision;
     if (validPins.length) fittedPeers.current = true;
-  }, [ready, coordinates, areaCenter, validPins.length]);
+  }, [ready, coordinates, areaCenter, validPins.length, focusRevision]);
   const recenter = async () => {
     setLocating(true);
     setActionError(undefined);

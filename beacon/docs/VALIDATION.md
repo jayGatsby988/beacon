@@ -2,6 +2,18 @@
 
 Implementation, automated checks, native compilation, and physical acceptance are separate evidence. This document does not infer radio delivery or rescue from a build passing.
 
+## Map coverage and camera repair — October 18, 01:39 Pacific
+
+The reported “Map not saved here” problem had two distinct causes. The original bundled rectangle excluded the phones’ recent reported position, while a camera guard could leave the view at an old position after returning to Nearby even though GPS refreshed. The app now includes 7,027 real OpenStreetMap features over the larger UW area and refits the camera once after the focused screen's location refresh. This does not continuously override map gestures. Shared coverage metadata is used by both Nearby and request details; old bundled-map metadata refreshes automatically on startup. The expanded geometry needs no network rendering resources. See [source and geometry validation](evidence/expanded-offline-map.json).
+
+The actual simulator app reproduced the stale-camera failure, then verified the repair: after visiting an outside-coverage position, returning to Nearby at a point outside the old bounds but inside the expanded area centered the fresh “You” pin over streets and buildings without tapping Locate. Location sharing stayed off. This is genuine app rendering with simulated GPS, not a fabricated peer or a successful Bluetooth location exchange. The explicit locate action also refreshes local GPS without publishing it. See [native UI evidence](SIMULATOR_UI_VALIDATION.md).
+
+The complete local Timescale workspace check passes **159 tests, zero failures, zero skips**, with mobile/API TypeScript, ESLint and real local HTTP/database checks. Tests include 25 map-service cases, local-only location refresh, and two protocol/service-to-UI tests for People rows and map pins through receipt, withdrawal, disconnect, reconnect and audience changes. OS/radio APIs and native rendering are stubbed in those automated tests; physical paired location visibility remains a separate user check.
+
+Online **Save my area** still failed in the actual simulator: Private.coffee GET returned HTTP 500 and the one fallback request timed out. A host GET succeeded, but neither switching request method nor the tested identity-encoding header established native save success; the unproven header was reverted. No downloaded-area restart success is claimed. The bundled expanded UW area avoids that download for the covered area. Existing downloaded files now use portable filenames, and interrupted replacement/cancellation preserves the previous valid map. Saving other areas remains an unresolved limitation.
+
+The final development-signed Release build installed on both connected iPhones. Signature verification, profile validity/device inclusion, and freshness against all 121 relevant local source/asset files pass. iOS initially denied remote launch with a Security verification error. After the user confirmed opening both manually, process checks matched each running Beacon process to its newly installed application path. Installation and startup are confirmed; paired physical pin visibility still needs its own check. See [sanitized build and phone evidence](evidence/map-coverage-camera-repair.json).
+
 ## Offline map repair and physical audio diagnosis — October 18, 01:10 Pacific
 
 The complete workspace passes **143 tests, zero failures, zero skips**, including mobile/API TypeScript, lint, and actual local PostgreSQL/Timescale HTTP checks. Thirteen map-service regressions cover the default geometry download, stale GPS rejection, cancellation during GPS/fetch/native creation, saved-area restoration, interrupted restart, and native SDK completion rather than rounded percentages. The native host checker passes the codec/crypto/PCM pipeline and bounded diagnostic-store tests; the updated audio source also passes an arm64 iOS-targeted Swift typecheck.
@@ -130,6 +142,8 @@ At 22:19:27, a further intact database snapshot confirmed an explicit receiver i
 No Vultr/Tiger Data cloud resources, paid build service, public release, or hosted CI run were created. Local PostgreSQL/Timescale test tooling is free; its isolated test daemon was stopped after validation. Real Express HTTP checks passed readiness, signed uploads, retry deduplication, observer spoof rejection, incident authorization, replay/summary, token revocation, and a 30-day-late aggregate refresh. Hosted CI is manual-only to avoid automatic private-runner usage. Local BLE operation does not require cloud credentials.
 
 The [local Timescale validation record](LOCAL_TIMESCALE_VALIDATION.md) includes exact versions, reproduction commands, sanitized test output, HTTP results, and daemon shutdown evidence.
+
+The latest expanded-map Release build was also installed and launched successfully on the newly connected iPhone 17 Pro. Its running executable matched the new installation path. This confirms installation and startup, not paired map-pin or audio behavior.
 
 ## Required before broader use
 

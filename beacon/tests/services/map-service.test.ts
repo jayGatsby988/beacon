@@ -69,6 +69,40 @@ type Service = {
   dispose(): void;
 };
 const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+test("bundled map refreshes legacy coverage metadata from the expanded offline asset without HTTP", async (t) => {
+  const h = fixture({
+    stored: {
+      status: "ready",
+      progress: 1,
+      bundled: true,
+      bounds: [-122.313, 47.65, -122.299, 47.66],
+      updatedAt: Date.parse("2026-10-17T20:02:22-07:00"),
+    },
+  });
+  t.after(h.cleanup);
+  await h.service.initialize();
+  const restored = h.changed.at(-1)!;
+  assert.deepEqual(restored.bounds, campus.metadata.coverageBounds);
+  assert.equal(restored.updatedAt, Date.parse(campus.metadata.retrievedAt));
+  assert.equal(restored.bundled, true);
+  assert.equal(restored.status, "ready");
+  assert.equal(h.requests.length, 0);
+  assert.deepEqual(h.persisted.at(-1)?.bounds, campus.metadata.coverageBounds);
+  for (const feature of campus.features) {
+    const positions =
+      feature.geometry.type === "Polygon"
+        ? feature.geometry.coordinates.flat()
+        : feature.geometry.coordinates;
+    for (const [longitude, latitude] of positions) {
+      assert.ok(longitude >= campus.bbox[0] && longitude <= campus.bbox[2]);
+      assert.ok(latitude >= campus.bbox[1] && latitude <= campus.bbox[3]);
+    }
+  }
+  // Public northern-campus point formerly outside the shipped coverage rectangle.
+  assert.ok(restored.bounds![1] < 47.663 && restored.bounds![3] > 47.663);
+});
+
 function fixture(
   options: {
     fetchGate?: ReturnType<typeof deferred<Response>>;

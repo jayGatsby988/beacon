@@ -13,7 +13,7 @@ import { SocialService } from "../../apps/mobile/src/services/SocialService.js";
 import { SocialRepository } from "../../apps/mobile/src/storage/SocialRepository.js";
 import type { Database, SqlValue } from "../../apps/mobile/src/storage/Repository.js";
 import type { PersonView } from "../../apps/mobile/src/ui/types.js";
-import { campusStyle } from "../../apps/mobile/src/components/campusMapStyle.js";
+import { CAMPUS_BOUNDS, campusStyle } from "../../apps/mobile/src/components/campusMapStyle.js";
 
 // Actual signed protocol, SocialService, SQLite repository, Nearby screen and
 // NearbyMap render. Only native views/hooks are replaced; no runtime fixtures,
@@ -54,7 +54,7 @@ function screen(getState: () => any, now: () => number) {
     if (name === "@maplibre/maplibre-react-native") return { __esModule: true, default: mapNative };
     if (name === "@beacon/protocol") return protocol;
     if (name.endsWith("/theme/tokens")) return { colors: {}, fonts: {} };
-    if (name === "./campusMapStyle") return { campusStyle };
+    if (name === "./campusMapStyle") return { CAMPUS_BOUNDS, campusStyle };
     if (name.endsWith("/services/BeaconContext")) return { useBeacon: getState };
     if (name.endsWith("/components/NearbyMap")) return mapModule;
     if (name.endsWith("/components/RequestCard")) return { RequestCard: () => null };

@@ -1,0 +1,39 @@
+{
+  "checkedAt": "2026-10-18T08:38:54.826755Z",
+  "asset": "apps/mobile/assets/maps/uw-campus.json",
+  "source": "OpenStreetMap contributors",
+  "license": "ODbL-1.0",
+  "provider": "https://overpass.private.coffee/api/interpreter",
+  "retrievedAt": "2026-10-18T08:08:26.389000Z",
+  "provenance": "Existing successful public UW-area Overpass response; no new network request for bundle expansion. Original feature coordinates and properties preserved byte-for-byte under JSON serialization.",
+  "coverageBounds": [
+    -122.3193611797981,
+    47.646,
+    -122.2926388202019,
+    47.664
+  ],
+  "geometryExtent": [
+    -122.3221289,
+    47.6432543,
+    -122.2905959,
+    47.6708518
+  ],
+  "coverageNote": "metadata.coverageBounds is the requested coverage rectangle; GeoJSON bbox encloses all complete OSM ways, including those extending outside requested coverage.",
+  "features": 7027,
+  "positions": 39426,
+  "rings": 1309,
+  "geometryCounts": {
+    "LineString/road": 5718,
+    "Polygon/water": 11,
+    "Polygon/building": 1238,
+    "Polygon/park": 60
+  },
+  "sha256": "e08fa33e62ec7bbffb9575c4de69713feccc569d88288c9b6a3e34913bb09757",
+  "bytes": 1700952,
+  "validatorPackage": "@maplibre/maplibre-gl-style-spec",
+  "validatorVersion": "26.4.4",
+  "styleErrors": [],
+  "geometryErrors": [],
+  "networkRenderingResources": [],
+  "limitations": "Static roads, buildings, parks and water geometry; no street labels or routing. Native rendering validation is separate. This does not establish that online Save my area works."
+}

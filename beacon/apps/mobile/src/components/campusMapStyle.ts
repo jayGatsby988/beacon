@@ -1,5 +1,13 @@
 import campus from "../../assets/maps/uw-campus.json";
 
+// Coverage requested from OSM. Complete ways can extend beyond this rectangle.
+export const CAMPUS_BOUNDS: [number, number, number, number] = [
+  campus.metadata.coverageBounds[0],
+  campus.metadata.coverageBounds[1],
+  campus.metadata.coverageBounds[2],
+  campus.metadata.coverageBounds[3],
+];
+
 export const campusStyle = {
   version: 8,
   sources: {

@@ -36,6 +36,7 @@ export default function Nearby() {
   const b = useBeacon();
   const { height } = useWindowDimensions();
   const [now, setNow] = useState(Date.now);
+  const [mapFocusRevision, setMapFocusRevision] = useState(0);
   const findAction = useAction();
   const shareAction = useAction();
   useFocusEffect(
@@ -48,8 +49,17 @@ export default function Nearby() {
   const { locationPermission, refreshLocation } = b;
   useFocusEffect(
     useCallback(() => {
-      if (locationPermission === "granted")
-        void refreshLocation().catch(() => {});
+      let focused = true;
+      if (locationPermission === "granted") {
+        void refreshLocation()
+          .then(() => {
+            if (focused) setMapFocusRevision((revision) => revision + 1);
+          })
+          .catch(() => {});
+      }
+      return () => {
+        focused = false;
+      };
     }, [locationPermission, refreshLocation]),
   );
   const group = b.groups.find((g) => g.id === b.activeGroupId);
@@ -207,6 +217,7 @@ export default function Nearby() {
       <NearbyMap
         key={b.activeGroupId ?? "public"}
         ownLocation={b.location}
+        focusRevision={mapFocusRevision}
         pins={pins}
         connectedCount={connected.length}
         internet={b.internet}

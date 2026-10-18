@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Linking, Pressable } from "react-native";
 import MapLibre from "@maplibre/maplibre-react-native";
 import type { LocationReport, MapState } from "../ui/types";
-import { campusStyle } from "../components/campusMapStyle";
+import { CAMPUS_BOUNDS, campusStyle } from "../components/campusMapStyle";
 import { colors as c, fonts } from "../theme/tokens";
 const OFFLINE_STYLE = JSON.stringify(campusStyle);
 
@@ -24,8 +24,7 @@ export default function RequestMap({
     !map.bundled &&
     !!map.styleUrl &&
     !savedFailed;
-  const bounds =
-    saved && map.bounds ? map.bounds : [-122.313, 47.65, -122.299, 47.66];
+  const bounds = saved && map.bounds ? map.bounds : CAMPUS_BOUNDS;
   const longitude = location.longitude,
     latitude = location.latitude;
   const within =
