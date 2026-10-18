@@ -1,11 +1,37 @@
 import ExpoModulesCore
 import CoreBluetooth
+import UIKit
 
 public class BeaconBleModule: Module {
   private var transport: BeaconTransport?
   public func definition() -> ModuleDefinition {
     Name("BeaconBle")
-    Events("onPeer", "onData", "onState", "onError")
+    Events("onPeer", "onData", "onState", "onError", "onVoice")
+    AsyncFunction("getVoiceSupport") { (promise: Promise) in
+      DispatchQueue.main.async { promise.resolve(BeaconTransport.voiceSupport()) }
+    }
+    AsyncFunction("voicePrepare") { (options: [String: Any], promise: Promise) in DispatchQueue.main.async {
+      guard let transport = self.transport else { promise.reject("NOT_STARTED", "Start Bluetooth first"); return }
+      transport.voicePrepare(options, promise: promise)
+    } }
+    AsyncFunction("voiceConnect") { (options: [String: Any], promise: Promise) in DispatchQueue.main.async {
+      guard let transport = self.transport else { promise.reject("NOT_STARTED", "Start Bluetooth first"); return }
+      transport.voiceConnect(options, promise: promise)
+    } }
+    AsyncFunction("voiceStart") { (callId: String, promise: Promise) in DispatchQueue.main.async {
+      guard let transport = self.transport else { promise.reject("NOT_STARTED", "Start Bluetooth first"); return }
+      transport.voiceStart(callId, promise: promise)
+    } }
+    AsyncFunction("voiceStop") { (callId: String, promise: Promise) in DispatchQueue.main.async {
+      self.transport?.voiceStop(callId); promise.resolve(nil)
+    } }
+    AsyncFunction("voiceSetMuted") { (muted: Bool, promise: Promise) in DispatchQueue.main.async {
+      self.transport?.voiceSetMuted(muted); promise.resolve(nil)
+    } }
+    AsyncFunction("voiceSetSpeaker") { (speaker: Bool, promise: Promise) in DispatchQueue.main.async {
+      do { try self.transport?.voiceSetSpeaker(speaker); promise.resolve(nil) }
+      catch { promise.reject("AUDIO_ROUTE_FAILED", "Could not change the audio output") }
+    } }
     AsyncFunction("start") { (options: [String: String], promise: Promise) in
       DispatchQueue.main.async {
         guard let nodeId = options["nodeId"], !nodeId.isEmpty else { promise.reject("INVALID_ID", "A nodeId is required"); return }
@@ -45,6 +71,10 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
   private var outgoing: [UUID: BeaconLink] = [:]; private var incoming: [UUID: BeaconLink] = [:]
   private var notifyChar: CBMutableCharacteristic?; private var timer: Timer?
   private var cooldown: [UUID: (TimeInterval, Int)] = [:]; private var sequence = UInt32.random(in: 0...UInt32.max)
+  private var voice: BeaconVoiceSession?
+  private var voicePublishPending: String?
+  private var voicePublishPromise: Promise?
+  private var voiceOpenPending: BeaconVoiceSession?
   init(emit: @escaping (String, [String: Any]) -> Void) {
     self.emit = emit; super.init()
     centralManager = CBCentralManager(delegate: self, queue: .main)
@@ -68,6 +98,8 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
     if let value, UUID(uuidString: value) == nil { promise.reject("INVALID_UUID", "Invalid service UUID"); return }
     if wanted { promise.resolve(state()); return }
     if let value { service = CBUUID(string: value) }
+    voicePublishPromise?.reject("STOPPED", "Bluetooth restarted")
+    voicePublishPromise = nil; voicePublishPending = nil; voiceOpenPending = nil
     // Fresh managers isolate queued callbacks from a prior stop/start lifecycle.
     centralManager.delegate = nil; peripheralManager.delegate = nil
     centralManager = CBCentralManager(delegate: self, queue: .main)
@@ -100,6 +132,7 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
   }
   func stop() {
     trace("stop requested")
+    voice?.finish("bluetooth_stopped", failed: false)
     wanted = false; timer?.invalidate(); timer = nil
     centralManager.stopScan(); peripheralManager.stopAdvertising(); peripheralManager.removeAllServices(); serviceReady = false; publishedService = nil; advertisingPending = false
     for link in Array(outgoing.values) { if let p = link.peripheral { centralManager.cancelPeripheralConnection(p); p.delegate = nil }; drop(link, "STOPPED") }
@@ -107,6 +140,7 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
     outgoing.removeAll(); incoming.removeAll(); retiring.removeAll(); cooldown.removeAll(); notifyChar = nil; stateEvent()
   }
   private func drop(_ link: BeaconLink, _ code: String) {
+    if voice?.peerId == link.id { voice?.finish("bluetooth_disconnected", failed: false) }
     for job in link.queue { job.promise.reject(code, "BLE session closed; retry durable queue") }
     link.queue.removeAll(); link.ready = false
     emit("onPeer", ["peerId": link.id, "state": "disconnected"])
@@ -174,13 +208,18 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
     guard central === centralManager else { return }
     trace("central state=\(central.state.rawValue)")
     if central.state != .poweredOn {
+      voiceOpenPending = nil
       for link in outgoing.values { drop(link, "RADIO_UNAVAILABLE") }; outgoing.removeAll(); retiring.removeAll()
     }; activate(); stateEvent()
   }
   func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
     guard peripheral === peripheralManager else { return }
     trace("peripheral state=\(peripheral.state.rawValue)")
-    if peripheral.state != .poweredOn { serviceReady = false; publishedService = nil; advertisingPending = false; for link in incoming.values { drop(link, "RADIO_UNAVAILABLE") }; incoming.removeAll() }
+    if peripheral.state != .poweredOn {
+      voicePublishPromise?.reject("BLUETOOTH_UNAVAILABLE", "Bluetooth became unavailable")
+      voicePublishPromise = nil; voicePublishPending = nil
+      serviceReady = false; publishedService = nil; advertisingPending = false; for link in incoming.values { drop(link, "RADIO_UNAVAILABLE") }; incoming.removeAll()
+    }
     activate(); stateEvent()
   }
   func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
@@ -197,6 +236,7 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
   }
   func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
     guard central === centralManager, wanted else { return }
+    if voiceOpenPending?.expectedPeer === peripheral { voiceOpenPending = nil }
     if retiring[peripheral.identifier]?.0 === peripheral { retiring.removeValue(forKey: peripheral.identifier); return }
     if let link = outgoing[peripheral.identifier], link.peripheral === peripheral { close(link, "DISCONNECTED", disconnected: true, cause: error) }
   }
@@ -261,4 +301,116 @@ private final class BeaconTransport: NSObject, CBCentralManagerDelegate, CBPerip
     peripheral.respond(to: first, withResult: result)
   }
   func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) { guard peripheral === peripheralManager, wanted else { return }; for link in incoming.values { pump(link) } }
+
+  static func voiceSupport() -> [String: Any] {
+#if targetEnvironment(simulator)
+    return ["supported": false, "reason": "Bluetooth calling requires a physical iPhone"]
+#else
+    return ["supported": true]
+#endif
+  }
+
+  func voicePrepare(_ options: [String: Any], promise: Promise) {
+    guard Self.voiceSupport()["supported"] as? Bool == true else { promise.reject("VOICE_UNSUPPORTED", "Bluetooth calling requires a physical iPhone"); return }
+    guard wanted, centralManager.state == .poweredOn, peripheralManager.state == .poweredOn,
+      UIApplication.shared.applicationState == .active else { promise.reject("VOICE_UNAVAILABLE", "Bluetooth and foreground access are required"); return }
+    guard voice == nil else { promise.reject("VOICE_BUSY", "A call is already in progress"); return }
+    guard voicePublishPending == nil, voiceOpenPending == nil else { promise.reject("VOICE_BUSY", "Bluetooth is still closing the last call. Restart Nearby in Settings if this continues."); return }
+    guard let callId = options["callId"] as? String, let peerId = options["peerId"] as? String,
+      let encoded = options["keyBase64"] as? String, encoded.count == 44,
+      let key = Data(base64Encoded: encoded), key.count == 32, key.base64EncodedString() == encoded,
+      let initiator = options["initiator"] as? Bool,
+      let link = (Array(outgoing.values) + Array(incoming.values)).first(where: { $0.id == peerId && $0.ready }),
+      let peer: CBPeer = initiator ? link.peripheral : link.central else {
+      promise.reject("INVALID_VOICE_PEER", "A connected peer with the requested Bluetooth role and a 32-byte call key is required"); return
+    }
+    do {
+      let session = try BeaconVoiceSession(callId: callId, peerId: peerId, peer: peer, key: key, initiator: initiator,
+        emit: { [weak self] body in self?.emit("onVoice", body) }, onEnd: { [weak self] ended in self?.voiceEnded(ended) })
+      voice = session
+      if initiator { promise.resolve(["psm": 0]) }
+      else {
+        voicePublishPending = callId; voicePublishPromise = promise
+        // Application-layer authenticated encryption avoids pairing UI; the
+        // negotiated secret is carried only by the authenticated JS signaling.
+        peripheralManager.publishL2CAPChannel(withEncryption: false)
+      }
+    } catch { promise.reject("INVALID_VOICE_CALL", "Invalid call identifier or key") }
+  }
+
+  func voiceConnect(_ options: [String: Any], promise: Promise) {
+    guard let session = voice, !session.closed, session.initiator,
+      options["callId"] as? String == session.callId, options["peerId"] as? String == session.peerId,
+      let psm = options["psm"] as? Int, psm > 0, psm <= Int(UInt16.max),
+      session.psm == 0, voiceOpenPending == nil,
+      let peripheral = session.expectedPeer as? CBPeripheral,
+      let link = outgoing[peripheral.identifier], link.ready, link.id == session.peerId, link.peripheral === peripheral else {
+      promise.reject("INVALID_VOICE_CHANNEL", "Call and connected central link must match"); return
+    }
+    session.psm = CBL2CAPPSM(psm); voiceOpenPending = session
+    peripheral.openL2CAPChannel(session.psm)
+    promise.resolve(nil)
+  }
+
+  func voiceStart(_ callId: String, promise: Promise) {
+    guard let session = voice, session.callId == callId else { promise.reject("VOICE_NOT_READY", "No matching call"); return }
+    session.start(promise)
+  }
+  func voiceStop(_ callId: String) { if voice?.callId == callId { voice?.finish("local_ended", failed: false) } }
+  func voiceSetMuted(_ value: Bool) { voice?.setMuted(value) }
+  func voiceSetSpeaker(_ value: Bool) throws { try voice?.setSpeaker(value) }
+
+  private func voiceEnded(_ session: BeaconVoiceSession) {
+    guard voice === session else { return }
+    if !session.initiator, session.psm != 0 { peripheralManager.unpublishL2CAPChannel(session.psm) }
+    if voicePublishPending == session.callId {
+      voicePublishPromise?.reject("VOICE_ENDED", "Call ended before channel publication")
+      voicePublishPromise = nil
+      // Leave the operation marker until its callback, so a late publish cannot
+      // be mistaken for a subsequent call. stop/start retires the manager too.
+    }
+    voice = nil
+  }
+
+  func peripheralManager(_ peripheral: CBPeripheralManager, didPublishL2CAPChannel PSM: CBL2CAPPSM, error: Error?) {
+    guard peripheral === peripheralManager else { return }
+    let callId = voicePublishPending; let promise = voicePublishPromise
+    voicePublishPending = nil; voicePublishPromise = nil
+    guard wanted, let session = voice, session.callId == callId, !session.initiator, !session.closed else {
+      if error == nil, PSM != 0 { peripheral.unpublishL2CAPChannel(PSM) }
+      promise?.reject("VOICE_ENDED", "Call ended before channel publication"); return
+    }
+    guard error == nil, PSM != 0 else {
+      promise?.reject("VOICE_PUBLISH_FAILED", "Could not publish Bluetooth audio channel")
+      session.finish("channel_publish_failed", failed: true); return
+    }
+    session.psm = PSM; promise?.resolve(["psm": Int(PSM)])
+  }
+
+  func peripheral(_ peripheral: CBPeripheral, didOpen channel: CBL2CAPChannel?, error: Error?) {
+    guard let pending = voiceOpenPending, pending.expectedPeer === peripheral else {
+      channel?.inputStream.close(); channel?.outputStream.close(); return
+    }
+    voiceOpenPending = nil
+    guard wanted, voice === pending, !pending.closed,
+      outgoing[peripheral.identifier]?.peripheral === peripheral else {
+      channel?.inputStream.close(); channel?.outputStream.close(); return
+    }
+    guard error == nil, let channel, channel.peer.identifier == peripheral.identifier, channel.psm == pending.psm else {
+      channel?.inputStream.close(); channel?.outputStream.close()
+      pending.finish("channel_open_failed", failed: true); return
+    }
+    pending.attach(channel)
+  }
+
+  func peripheralManager(_ peripheral: CBPeripheralManager, didOpen channel: CBL2CAPChannel?, error: Error?) {
+    guard peripheral === peripheralManager, wanted, let session = voice, !session.initiator, !session.closed,
+      let channel, error == nil, channel.psm == session.psm,
+      channel.peer.identifier == session.expectedPeer.identifier,
+      let central = session.expectedPeer as? CBCentral,
+      let link = incoming[central.identifier], link.ready, link.id == session.peerId, link.central === central else {
+      channel?.inputStream.close(); channel?.outputStream.close(); return
+    }
+    session.attach(channel)
+  }
 }
