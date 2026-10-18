@@ -12,7 +12,7 @@ xcodebuild \
   -scheme Beacon -configuration Release -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath "$BEACON_ROOT/tmp/SimulatorBuild" \
-  CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- IPHONEOS_DEPLOYMENT_TARGET=15.1 -jobs 4 \
+  CODE_SIGN_IDENTITY=- IPHONEOS_DEPLOYMENT_TARGET=15.1 -jobs 4 \
   > "$BEACON_ROOT/dist/ios/build.log" 2>&1
 BEACON_APP="$BEACON_ROOT/tmp/SimulatorBuild/Build/Products/Release-iphonesimulator/Beacon.app"
 test -s "$BEACON_APP/main.jsbundle"

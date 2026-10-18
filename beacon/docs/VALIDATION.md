@@ -2,9 +2,17 @@
 
 Implementation, automated checks, native compilation, and physical acceptance are separate evidence. This document does not infer radio delivery or rescue from a build passing.
 
-## Automated evidence
+## Nearby and private groups update — October 17, 23:15 local
 
-The Node 24 workspace checks pass strict mobile/API TypeScript, ESLint with zero warnings, and **49 tests**. The default run skips one additional Timescale integration test when no database URL is configured. With real PostgreSQL 18.6 / TimescaleDB 2.30.2 configured, the complete suite passes **50 tests with zero failures and zero skips**, including regressions for fractional native location timestamps and malformed optional location reports.
+The expanded suite passes **82 tests, zero failures, one database-dependent skip**. Mobile/API TypeScript and ESLint pass. Tests use real signed/encrypted protocol packets and disk-backed SQLite with explicitly synthetic radio links. New checks cover direct-message persistence, lost and forged acknowledgments, reconnect/restart, receipt-queue starvation, bounded traffic/cache limits, future-clock and late-arrival unread tracking, private group isolation, queued scope changes, and a complete private SOS offer/accept/assignment receipt flow. Optional GPS timeout no longer leaves an unrelated action error on Home.
+
+The signed iOS Release build passes under Xcode 27.1 and its development profile includes the intended new iPhone. Installation is pending because the phone disconnected: CoreDevice returned error 4016. [Nearby/groups evidence](NEARBY_GROUPS.md) records the final bundle/signature information. Earlier installations and the existing exported Android/Simulator archives predate this update and do not establish delivery of these new features.
+
+The iOS Simulator ran a freshly exported production Hermes bundle with the existing compatible native binary. Actual UI checks verified group creation/selection, selected-group restoration after restart, private SOS creation/cancellation, the simplified Home, and the chat screen with an explicitly synthetic contact. The contact was removed after inspection. Multiline typing through Device Hub automation was unavailable, so no manual composer-send or physical messaging result is claimed; real service tests cover sending/persistence/acknowledgments. See [simulator checks](SIMULATOR_UI_VALIDATION.md).
+
+## Earlier automated evidence
+
+The earlier Node 24 workspace baseline passed strict mobile/API TypeScript, ESLint with zero warnings, and **49 tests**. That default run skipped one additional Timescale integration test when no database URL was configured. With real PostgreSQL 18.6 / TimescaleDB 2.30.2 configured, the earlier complete suite passed **50 tests with zero failures and zero skips**, including regressions for fractional native location timestamps and malformed optional location reports. The larger update suite is recorded above; the earlier build/artifact observations below retain their original scope.
 
 Coverage includes canonical Ed25519 vectors, malformed/expired/over-hop messages, forwarding without false delivery evidence, return receipts, authorization of assignment/terminal state, late dependencies, replay and flood limits, persistence failure rollback, restart recovery, outbox retry/acknowledgment, native-link rejection, and map cancellation races. A three-node test uses real disk-backed SQLite with explicitly synthetic radio links, restarts the relay/requester, and checks a confirmed volunteer assignment and duplicate suppression.
 

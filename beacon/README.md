@@ -1,19 +1,23 @@
 # Beacon
 
-Community help when connectivity disappears. Beacon is an iPhone/Android app with a simple SOS interface, real native Bluetooth transport, persistent queues, and explicit volunteer assistance confirmation.
+Community help when connectivity disappears. Beacon is an iPhone/Android app with SOS requests, encrypted nearby messages, private groups, real native Bluetooth transport, and persistent queues.
 
 > Research/test build. Beacon does not contact emergency services, verify a volunteer's qualifications, guarantee delivery, or guarantee that help will arrive. Keep participating apps open for the most dependable operation.
 
 ## What is implemented
 
 - **I need help:** one tap saves and queues an SOS after setup. Category, note, location and place description are optional.
-- **Help nearby:** actual received requests, volunteer offers, requester acceptance, and separate helper assignment receipts.
+- **Nearby:** discover directly connected Beacon users, open one-to-one conversations, and view received SOS requests with volunteer offers, requester acceptance, and helper assignment receipts. It does not discover arbitrary phones.
+- **Encrypted direct messages:** ciphertext is saved for reconnect retry. Received requires an authenticated acknowledgment after recipient persistence, not a Bluetooth write or a read receipt. Delivery expires after 24 hours; local history remains for seven days after expiry.
+- **Private groups:** create or join an invite-based group. Only the selected scope is active. Group SOS uses encrypted Bluetooth packets and a separate database without cloud event/outbox entries; it can relay through phones in that same active group. Direct messages remain one-to-one and require direct contact. Sharing the invite grants membership; no revocation or forward secrecy is claimed. See [Nearby messages and private groups](docs/NEARBY_GROUPS.md).
 - **Honest status:** waiting, forwarded, received, offered, accepted and confirmed remain distinct. Last confirmed state survives restart/disconnection.
 - **Real transport:** Swift CoreBluetooth and Kotlin Android GATT scan/advertise/connect/send/receive, bounded fragmentation, retries and reconnection. No Expo Go or simulated transport in the shipped app.
-- **Durability:** SQLite transactions persist signed messages, deduplication, derived state, forwarding history and upload outbox; SecureStore protects device keys and cloud tokens.
+- **Durability:** SQLite transactions persist signed requests, encrypted direct-message packets, deduplication, derived state and forwarding history. Only Nearby SOS events enter the optional upload outbox. SecureStore protects device keys, group invites and cloud tokens.
 - **Offline request maps:** a bundled OpenStreetMap UW campus geometry extract works without external tiles/fonts/sprites. Coordinates and location accuracy remain visible. Optional provider regions use MapLibre downloads.
 - **Secondary tools:** connection diagnostics, actual local event history, redacted diagnostic export, settings, and optional authenticated incident replay/summary after connectivity returns.
 - **Optional backend:** Express API, PostgreSQL/Timescale migrations, scoped enrollment tokens, idempotent ingestion, replay pagination, late aggregate refresh, container and Vultr/Caddy configuration. No hosted service is provisioned by this repository.
+
+All participating phones need the updated native build for people, messages, and groups; existing SOS-only binaries do not contain this flow.
 
 This is an AI-assisted mock-hackathon/research build. Authorized GitHub account rotation is a workflow exercise, not evidence of independent human authorship. Six specialist AI workstreams contributed implementation and review; the root task integrated and verified their work.
 
@@ -45,7 +49,7 @@ cd ..
 npx expo run:ios --configuration Release
 ```
 
-For a physical iPhone, open `ios/Beacon.xcworkspace`, select your own development team in Signing & Capabilities, connect and trust the phone, enable Developer Mode, then build. No Apple credential is included in this repository. After the user signed into Xcode, a Personal Team development-signed Release build installed successfully on the connected iPhone 17 Pro Max. Launch requires the user to trust the development profile in iPhone Settings → General → VPN & Device Management.
+For a physical iPhone, open `ios/Beacon.xcworkspace`, select your own development team in Signing & Capabilities, connect and trust the phone, enable Developer Mode, then build. No Apple credential is included in this repository. On October 17, 2026, an earlier Personal Team development-signed SOS Release build installed successfully on the connected iPhone 17 Pro Max. This predates the messaging/group update. Launch may require the user to trust the development profile in iPhone Settings → General → VPN & Device Management.
 
 Beacon uses Expo with custom native Bluetooth and MapLibre modules. **Expo Go cannot run it.** The installed Release app includes its JavaScript and opens from its own icon without a development server. To reproduce the device build from this directory with your existing Xcode account:
 
@@ -73,14 +77,17 @@ Local SOS and BLE do not require any backend, online account or map key. Leave c
 
 ## Verification and boundaries
 
-The latest measured build, startup and interaction results are recorded in [VALIDATION.md](docs/VALIDATION.md). The automated suite passes **50 tests with the real local Timescale test database configured**. A normal run without a database URL passes 49 and explicitly skips that one integration test. Both app TypeScript checks and ESLint pass. Swift and Kotlin framing suites each pass 28 payload/MTU round trips and malformed/order/timeout/capacity/recovery cases. Three-node application tests use explicitly synthetic radio links and actual disk-backed SQLite; they are not evidence of physical radio behavior.
+Current measured checks, native builds, and device interactions are recorded in [VALIDATION.md](docs/VALIDATION.md). The automated suite covers protocol validation, persistence, startup resilience, messaging acknowledgments, and private-group isolation. New messaging/group tests use actual service code and disk-backed SQLite with explicitly mocked Bluetooth; they do not establish physical radio behavior. See [the feature verification details](docs/NEARBY_GROUPS.md#verification).
 
-Native Android and iOS compilation passed. The replacement Android APK includes the SVG deduplication, map fixes and native location normalization; physical Android startup remains untested. The signed app installed and launched on the connected iPhone 17 Pro Max; its process was observed running afterward. Actual simulator interaction verified SOS creation, native map display, and cancellation. **Real three-phone BLE relaying, Android/iPhone interoperability, hosted cloud deployment, and production performance remain unverified. Local Timescale migrations and authenticated HTTP ingestion/replay were verified.** Unresolved dependency advisories and native-intent mitigations are recorded in [DEPENDENCY_AUDIT.md](docs/DEPENDENCY_AUDIT.md).
+**Dated baseline, October 17, 2026:** Android and iOS native compilation passed. The earlier Android APK included SVG deduplication, map fixes, and native location normalization; physical Android startup remained untested. A signed SOS build installed and launched on an iPhone 17 Pro Max. Simulator interaction verified SOS creation, native map display, cancellation, and history. Later physical SOS reception and receiver-acknowledgment observations are recorded separately in the validation log. These results predate the new messaging/group binaries and do not prove that the updated app is installed or physically tested.
+
+Swift and Kotlin framing suites cover payload/MTU round trips and malformed/order/timeout/capacity/recovery cases. Real local Timescale migrations and authenticated HTTP ingestion/replay were verified. **Three-phone physical BLE relaying, Android/iPhone interoperability, physical messaging/group delivery, hosted cloud deployment, and production performance remain unverified unless later evidence explicitly records them.** Unresolved dependency advisories and native-intent mitigations are recorded in [DEPENDENCY_AUDIT.md](docs/DEPENDENCY_AUDIT.md).
 
 Hosted CI is manual-only to avoid consuming private-repository runner minutes automatically. All local checks run without paid services.
 
 ## Documentation
 
+- [Nearby messages and private groups](docs/NEARBY_GROUPS.md)
 - [Architecture](docs/ARCHITECTURE.md) · [Protocol](docs/PROTOCOL.md) · [Native transport](docs/NATIVE_TRANSPORT.md)
 - [Design](docs/DESIGN.md) · [Brand and logo](docs/BRAND.md) · [Map license](apps/mobile/assets/maps/LICENSE.md)
 - [Native build evidence](docs/NATIVE_VALIDATION.md) · [Security review](docs/SECURITY_REVIEW.md)

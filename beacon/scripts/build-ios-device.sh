@@ -62,7 +62,7 @@ NODE_ENV=production xcodebuild \
   -derivedDataPath "$BEACON_ROOT/tmp/DerivedData" \
   -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
   "DEVELOPMENT_TEAM=$BEACON_TEAM" CODE_SIGN_STYLE=Automatic \
-  'CODE_SIGN_IDENTITY=Apple Development' CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES \
+  'CODE_SIGN_IDENTITY=Apple Development' \
   IPHONEOS_DEPLOYMENT_TARGET=15.1 \
   ONLY_ACTIVE_ARCH=YES SKIP_BUNDLING= FORCE_BUNDLING=1 -jobs "$BEACON_JOBS" build \
   2>&1 | tee "$BEACON_ROOT/dist/ios/device-build.log"
