@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
-import { router } from "expo-router";
+import { ActivityIndicator, Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
 import { Minus, Plus } from "lucide-react-native";
 import { useBeacon } from "../../src/services/BeaconContext";
 import { ErrorNotice, Field, Heading, Pill, Screen, useAction } from "../../src/components/ui";
@@ -20,25 +19,32 @@ function HelpContent({ b }: { b: ReturnType<typeof useBeacon> }) {
   const [note, setNote] = useState("");
   const [place, setPlace] = useState("");
   const action = useAction();
-  const { active, incoming } = useMemo(() => {
-    const currentRequests = b.requests.filter((request) =>
-      (request.groupId ?? null) === b.activeGroupId &&
+  const { active, incoming, pendingClosure } = useMemo(() => {
+    const scopedRequests = b.requests.filter((request) => (request.groupId ?? null) === b.activeGroupId);
+    const currentRequests = scopedRequests.filter((request) =>
       (request.status === "active" || request.status === "accepted"));
     return {
       active: currentRequests.find((request) => request.mine),
       incoming: currentRequests.filter((request) => !request.mine).sort((a, z) => z.updatedAt - a.updatedAt),
+      pendingClosure: scopedRequests.filter((request) => request.mine && request.pendingUpdate &&
+        (request.status === "completed" || request.status === "canceled"))
+        .sort((a, z) => z.updatedAt - a.updatedAt)[0],
     };
   }, [b.requests, b.activeGroupId]);
   const send = () => action.run(async () => {
-    const id = await b.sendSOS({ category, note: note.trim() || undefined, place: place.trim() || undefined });
-    router.push("/request/" + id);
+    await b.sendSOS({ category, note: note.trim() || undefined, place: place.trim() || undefined });
+    setCategory("other");
+    setNote("");
+    setPlace("");
+    setDetails(false);
+    Keyboard.dismiss();
   });
   return (
     <Screen title="Help" main showConnection>
       {active ? (
         <View style={s.active}>
           <Heading size={40}>Your SOS</Heading>
-          <AudiencePicker label="Send SOS to" compact />
+          <Text style={s.caption}>To: {active.groupId ? b.groups.find((group) => group.id === active.groupId)?.name || "Private group" : "Everyone nearby"}</Text>
           <RequestCard request={active} />
         </View>
       ) : (
@@ -47,6 +53,10 @@ function HelpContent({ b }: { b: ReturnType<typeof useBeacon> }) {
             <Text accessibilityRole="header" style={s.title}>Need help?</Text>
             <AudiencePicker label="Send SOS to" compact />
           </View>
+          {pendingClosure && <Text style={s.caption} accessibilityLiveRegion="polite"
+            accessibilityLabel={`Previous SOS ${pendingClosure.status}. Update waiting to be shared. Others may still see your request.`}>
+            Previous SOS {pendingClosure.status} · Update pending
+          </Text>}
           <View style={s.sendBlock}>
             <Pressable accessibilityRole="button" accessibilityLabel="Send SOS now" accessibilityHint="Saves your help request immediately and queues it for people in the selected audience. Does not call emergency services." accessibilityState={{ busy: action.busy, disabled: action.busy }} onPress={send} disabled={action.busy} style={({ pressed }) => [s.sos, pressed && s.pressedSOS, action.busy && s.disabled]}>
               <Text maxFontSizeMultiplier={1.3} style={s.sosText}>SOS</Text>

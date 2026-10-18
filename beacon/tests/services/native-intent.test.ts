@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { redirectSystemPath } from "../../apps/mobile/app/+native-intent.js";
 
 const requestId = "abc123".repeat(10) + "abcd";
-test("cold and warm native links preserve supported routes and complete request IDs", () => {
+test("cold and warm native links preserve supported routes", () => {
   for (const initial of [true, false])
     for (const route of [
       "/",
@@ -12,7 +12,6 @@ test("cold and warm native links preserve supported routes and complete request 
       "/history",
       "/settings",
       "/setup",
-      `/request/${requestId}`,
     ]) {
       assert.equal(redirectSystemPath({ path: route, initial }), route);
       assert.equal(
@@ -24,6 +23,13 @@ test("cold and warm native links preserve supported routes and complete request 
         route,
       );
     }
+});
+test("legacy SOS links land on Help without opening a separate details screen", () => {
+  for (const initial of [true, false]) {
+    for (const path of [`/request/${requestId}`, `beacon://request/${requestId}`]) {
+      assert.equal(redirectSystemPath({ path, initial }), "/");
+    }
+  }
 });
 test("malformed, encoded and query-based links never reach the downstream URI decoder", () => {
   for (const path of [

@@ -29,7 +29,6 @@ export default function RootLayout() {
           <Stack.Screen name="index" />
           <Stack.Screen name="setup" />
           <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="request/[id]" />
           <Stack.Screen name="network" />
           <Stack.Screen name="history" />
           <Stack.Screen name="incident" />
