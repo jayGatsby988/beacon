@@ -126,9 +126,13 @@ function callReason(
   if (value.includes(pendingChannel)) return pendingChannel;
   // Native platform messages may contain internal details; only expose app-owned sentences.
   if (
-    ["Bluetooth calls are unavailable.", "Invalid voice channel"].includes(
-      value,
-    )
+    [
+      "Bluetooth calls are unavailable.",
+      "Invalid voice channel",
+      "A call is already in progress.",
+      "This person is not connected.",
+      "Please wait before calling again.",
+    ].includes(value)
   )
     return value === "Invalid voice channel"
       ? "Could not prepare the Bluetooth voice connection."
@@ -163,11 +167,15 @@ export class CallService {
       call.scope === this.options.scope()
     );
   }
+  private reportError(error: unknown, fallback?: string) {
+    if (!this.disposed)
+      this.options.onError(new Error(callReason(error, fallback)));
+  }
   private run(work: () => Promise<void>): Promise<void> {
     if (this.disposed) return Promise.resolve();
     const task = work()
       .catch((error: unknown) => {
-        if (!this.disposed) this.options.onError(error);
+        this.reportError(error);
       })
       .finally(() => this.pending.delete(task));
     this.pending.add(task);
@@ -192,23 +200,28 @@ export class CallService {
   }
   private async signal(call: Active, content: CallContent) {
     if (!this.current(call)) return;
-    const wire = encodeCallSignal(
-      createCallSignal(
-        this.options.identity,
-        call.person.publicKey,
-        content,
-        call.scope,
-        this.now(),
-        this.options.random,
-      ),
+    const packet = createCallSignal(
+      this.options.identity,
+      call.person.publicKey,
+      content,
+      call.scope,
+      this.now(),
+      this.options.random,
     );
+    // Publication can take time. Both phones must use the lifetime of the
+    // actual invitation, not the caller's earlier preparation deadline.
+    if (content.kind === "invite") call.deadline = packet.expiresAt;
+    const wire = encodeCallSignal(packet);
     await this.options.send(call.peerId, wire, call.scope);
   }
   private async stopNative(callId: string) {
     try {
       await this.options.native.voiceStop(callId);
     } catch (error) {
-      if (!this.disposed) this.options.onError(error);
+      this.reportError(
+        error,
+        "Could not finish closing the call. Restart Beacon if calling stays unavailable.",
+      );
     }
   }
   private async finish(
@@ -235,7 +248,10 @@ export class CallService {
           ),
         );
       } catch (error) {
-        this.options.onError(error);
+        this.reportError(
+          error,
+          "Call ended on this phone. Could not confirm it with the other phone.",
+        );
       }
     }
     await Promise.all([
@@ -244,14 +260,17 @@ export class CallService {
         ? this.options
             .send(call.peerId, wire, call.scope)
             .catch((error: unknown) => {
-              if (!this.disposed) this.options.onError(error);
+              this.reportError(
+                error,
+                "Call ended on this phone. Could not confirm it with the other phone.",
+              );
             })
         : Promise.resolve(),
     ]);
   }
   private async fail(call: Active, error: unknown) {
     if (!this.current(call)) return;
-    this.options.onError(error);
+    this.reportError(error);
     await this.finish(call, callReason(error), "end");
   }
   private async prepare(
@@ -429,6 +448,12 @@ export class CallService {
         await this.stopNative(call.view.callId);
         return;
       }
+      // A microphone prompt can pause JS timers. Never revive an expired
+      // connection merely because the native start promise settles first.
+      if (call.deadline <= this.now()) {
+        await this.finish(call, "Connection timed out", "end");
+        return;
+      }
       call.view.state = "active";
       call.view.startedAt = this.now();
       this.emit(call.view);
@@ -442,7 +467,16 @@ export class CallService {
       if (!call || !this.current(call) || event.callId !== call.view.callId)
         return;
       if (event.state === "failed" || event.state === "ended") {
-        await this.finish(call, callReason(event.reason, "Call ended"), "end");
+        await this.finish(
+          call,
+          callReason(
+            event.reason,
+            event.state === "failed"
+              ? "The call connection failed. Try again."
+              : "Call ended",
+          ),
+          "end",
+        );
         return;
       }
       if (event.state === "ready") {
@@ -613,7 +647,7 @@ export class CallService {
         if (this.current(call)) {
           call.view.reason = "Could not change the microphone. Try again.";
           this.emit(call.view);
-          this.options.onError(error);
+          this.reportError(error, call.view.reason);
         }
       }
     });
@@ -634,7 +668,7 @@ export class CallService {
         if (this.current(call)) {
           call.view.reason = "Could not change the audio output. Try again.";
           this.emit(call.view);
-          this.options.onError(error);
+          this.reportError(error, call.view.reason);
         }
       }
     });
@@ -655,7 +689,7 @@ export class CallService {
       else if (call.view.state !== "active" && call.deadline <= this.now())
         await this.finish(
           call,
-          call.accepted ? "Connection timed out" : "No answer",
+          call.view.state === "ringing" ? "No answer" : "Connection timed out",
           "end",
         );
     });

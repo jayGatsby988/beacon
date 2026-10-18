@@ -54,7 +54,11 @@ function CallSession({
   const answerAction = useAction();
   const controlAction = useAction();
   const endAction = useAction();
+  const dismissAction = useAction();
   const terminal = call.status === "ended" || call.status === "failed";
+  // Ending audio is immediate; sending the remote end signal may still be
+  // pending. That cleanup must not prevent leaving an already ended call.
+  const closeAction = terminal ? dismissAction : endAction;
   const incoming = call.status === "ringing" && call.direction === "incoming";
   const active = call.status === "active";
   const status =
@@ -75,7 +79,7 @@ function CallSession({
       animationType="none"
       presentationStyle="fullScreen"
       onRequestClose={() => {
-        if (terminal) void endAction.run(() => controls.dismissCall(call.id));
+        if (terminal) void dismissAction.run(() => controls.dismissCall(call.id));
       }}
     >
       <SafeAreaView style={s.page} edges={["top", "bottom", "left", "right"]}>
@@ -174,7 +178,10 @@ function CallSession({
             )}
             <ErrorNotice
               message={
-                endAction.error || answerAction.error || controlAction.error
+                dismissAction.error ||
+                endAction.error ||
+                answerAction.error ||
+                controlAction.error
               }
             />
             {incoming && (
@@ -211,12 +218,12 @@ function CallSession({
                     : "End Bluetooth call"
               }
               accessibilityState={{
-                disabled: endAction.busy,
-                busy: endAction.busy,
+                disabled: closeAction.busy,
+                busy: closeAction.busy,
               }}
-              disabled={endAction.busy}
+              disabled={closeAction.busy}
               onPress={() =>
-                void endAction.run(() =>
+                void closeAction.run(() =>
                   terminal
                     ? controls.dismissCall(call.id)
                     : incoming
@@ -227,7 +234,7 @@ function CallSession({
               style={({ pressed }) => [
                 s.action,
                 terminal ? s.dismiss : s.end,
-                endAction.busy && { opacity: 0.6 },
+                closeAction.busy && { opacity: 0.6 },
                 pressed && s.pressed,
               ]}
             >
@@ -238,7 +245,7 @@ function CallSession({
                   { color: terminal ? c.text : c.onAction },
                 ]}
               >
-                {endAction.busy
+                {closeAction.busy
                   ? terminal
                     ? "Closing…"
                     : "Ending…"

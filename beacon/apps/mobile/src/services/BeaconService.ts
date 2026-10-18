@@ -106,6 +106,7 @@ export class BeaconService {
   private requestCache?: { repository: Repository; ids: string[]; states: ReturnType<typeof deriveRequests> };
   private receiveTail: Promise<unknown> = Promise.resolve();
   private pendingReceives = 0;
+  private pendingCallReceives = 0;
   private syncBusy = false;
   private cloudConfigChanging = false;
   private disposed = false;
@@ -656,38 +657,52 @@ export class BeaconService {
       typeof peerId !== "string" ||
       peerId.length > 128 ||
       typeof base64 !== "string" ||
-      base64.length > 22_000 ||
-      this.pendingReceives >= 32
+      base64.length > 22_000
     ) {
       this.error(
         new Error("Incoming traffic limit reached; excess packet rejected."),
       );
       return;
     }
+    if (this.scopeChanging) return;
+    const scope = this.state.activeGroupId;
+    let decoded: string;
+    try {
+      const bytes = toByteArray(base64);
+      if (bytes.length > LIMITS.wireBytes)
+        throw new Error("Oversized Bluetooth message.");
+      const wire = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      const group = scope ? this.state.groups.find((g) => g.id === scope) : undefined;
+      const opened = group ? openGroup(group, wire) : wire;
+      if (!opened) return;
+      const type = (JSON.parse(opened) as { type?: string }).type;
+      // Public mode never interprets sealed private traffic as ordinary SOS.
+      if (!group && type === "group") return;
+      decoded = opened;
+      if (type === "call") {
+        // A storage backlog or microphone prompt must not prevent a peer from
+        // answering or ending a call. CallService still authenticates, scopes,
+        // rate-limits and deduplicates every signal; only scheduling is separate.
+        if (!this.calls || !this.appActive || this.pausingCalls ||
+          !this.state.relayEnabled || this.pendingCallReceives >= 8) return;
+        this.pendingCallReceives++;
+        void this.calls.receive(peerId, decoded).catch(this.error).finally(() => {
+          this.pendingCallReceives--;
+        });
+        return;
+      }
+    } catch (error) {
+      this.error(error);
+      return;
+    }
+    if (this.pendingReceives >= 32) {
+      this.error(new Error("Incoming traffic limit reached; excess packet rejected."));
+      return;
+    }
     this.pendingReceives++;
     this.receiveTail = this.receiveTail
       .then(async () => {
-        if (this.disposed) return;
-        const bytes = toByteArray(base64);
-        if (bytes.length > LIMITS.wireBytes)
-          throw new Error("Oversized Bluetooth message.");
-        if (this.scopeChanging) return;
-        const scope = this.state.activeGroupId;
-        const wire = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-        const group = scope
-          ? this.state.groups.find((g) => g.id === scope)
-          : undefined;
-        const decoded = group ? openGroup(group, wire) : wire;
-        if (!decoded) return;
-        // Public mode never interprets sealed private traffic as ordinary SOS.
-        if (!group && (JSON.parse(wire) as { type?: string }).type === "group")
-          return;
-        if ((JSON.parse(decoded) as { type?: string }).type === "call") {
-          // Call control is ephemeral and never enters SOS persistence or relaying.
-          if (this.appActive && !this.pausingCalls && this.state.relayEnabled)
-            await this.calls?.receive(peerId, decoded);
-          return;
-        }
+        if (this.disposed || this.scopeChanging || scope !== this.state.activeGroupId) return;
         if (await this.social?.receive(peerId, decoded)) return;
         if (scope !== this.state.activeGroupId) return;
         await this.mesh().receive(peerId, decoded);

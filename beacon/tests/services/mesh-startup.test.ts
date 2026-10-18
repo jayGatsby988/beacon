@@ -41,6 +41,8 @@ function fixture(
     position?: () => Promise<unknown>;
     requestPermission?: () => Promise<unknown>;
     fastLocationTimeout?: boolean;
+    beforeSave?: () => Promise<void>;
+    receiveCall?: (peerId: string, wire: string) => Promise<void>;
   } = {},
 ) {
   const listeners = new Map<string, (event: any) => void>();
@@ -66,6 +68,7 @@ function fixture(
       hops: number,
       receivedAt: number,
     ) {
+      await options.beforeSave?.();
       if (records.has(envelope.id)) return false;
       records.set(envelope.id, { envelope, hops, receivedAt });
       return true;
@@ -89,6 +92,7 @@ function fixture(
     async recordEvent() {}
   }
   const bluetooth = {
+    ...(options.receiveCall ? { getVoiceSupport: async () => ({ supported: true }) } : {}),
     addListener: (name: string, callback: (event: any) => void) => {
       calls.push(`listen:${name}`);
       listeners.set(name, callback);
@@ -166,7 +170,10 @@ function fixture(
       },
     },
     "./SocialService": { SocialService },
-      "./CallService": { CallService },
+    "./CallService": { CallService: options.receiveCall ? class extends CallService {
+      // Routing probe only: authenticated signaling is exercised by call-service tests.
+      receive(peerId: string, wire: string) { return options.receiveCall!(peerId, wire); }
+    } : CallService },
     "./ServicePolicy": policy,
     "./MapService": {
       MapService: class {
@@ -475,4 +482,60 @@ test("Bluetooth recovery never hides unrelated service failures", async (t) => {
   assert.equal(h.service.state.error, "Malformed or excessive Bluetooth frame");
   await authenticate(h, "c:new");
   assert.equal(h.service.state.error, "Malformed or excessive Bluetooth frame", "successful discovery only clears the tagged retrying-connection error");
+});
+
+test("call control bypasses a full durable receive backlog without losing the saved SOS", { timeout: 3000 }, async (t) => {
+  let release!: () => void;
+  const stalled = new Promise<void>((resolve) => { release = resolve; });
+  const receivedCalls: string[] = [];
+  const h = fixture({ beforeSave: () => stalled, receiveCall: async (_peer, wire) => { receivedCalls.push(wire); } });
+  t.after(async () => { release(); await h.service.dispose(); });
+  await h.service.initialize();
+  const identity = protocol.createIdentity(randomBytes);
+  const envelope = protocol.createEnvelope(identity, {
+    type: "sos", requestId: protocol.createRequestId(identity, randomBytes), destination: "community",
+    payload: { category: "other", displayName: "Synthetic sender", note: "Synthetic queued SOS", location: { source: "unavailable", capturedAt: Date.now() } },
+  }, Date.now(), randomBytes);
+  const wire = protocol.encodePacket({ envelope, hops: 1 });
+  const emit = (value: string) => h.emit("onData", {
+    peerId: "remote-routing-probe", base64: base64.fromByteArray(new TextEncoder().encode(value)),
+  });
+  h.emit("onPeer", { peerId: "remote-routing-probe", state: "connected" });
+  for (let index = 0; index < 32; index++) emit(wire);
+  await turn();
+  assert.equal(h.records.size, 0, "persistent processing is deliberately stalled");
+  const control = JSON.stringify({ type: "call", routingProbe: "end" });
+  emit(control);
+  await turn();
+  assert.deepEqual(receivedCalls, [control], "call authentication/handling must start despite 32 pending durable packets");
+  release();
+  for (let index = 0; index < 12; index++) await turn();
+  assert.ok(h.records.has(envelope.id), "priority signaling must not discard the queued SOS");
+});
+
+test("independent call handlers stay bounded and ignore traffic after disposal", { timeout: 3000 }, async () => {
+  const release: (() => void)[] = [];
+  const h = fixture({ receiveCall: () => new Promise<void>((resolve) => { release.push(resolve); }) });
+  await h.service.initialize();
+  const emit = () => h.emit("onData", {
+    peerId: "remote-routing-probe",
+    base64: base64.fromByteArray(new TextEncoder().encode(JSON.stringify({ type: "call", routingProbe: true }))),
+  });
+  try {
+    for (let index = 0; index < 40; index++) emit();
+    await turn();
+    assert.equal(release.length, 8, "new fast path cannot create an unbounded promise backlog");
+    release[0]();
+    await turn();
+    emit();
+    await turn();
+    assert.equal(release.length, 9, "capacity becomes available when a handler settles");
+    await h.service.dispose();
+    emit();
+    await turn();
+    assert.equal(release.length, 9, "disposed service cannot handle new signals");
+  } finally {
+    for (const finish of release) finish();
+    await h.service.dispose();
+  }
 });

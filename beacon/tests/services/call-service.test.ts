@@ -37,6 +37,7 @@ class Native implements CallNativeAdapter {
   muted: boolean[] = [];
   speaker: boolean[] = [];
   gate?: Promise<void>;
+  startGate?: Promise<void>;
   error?: Error;
   supported = true;
   async getVoiceSupport() {
@@ -58,6 +59,7 @@ class Native implements CallNativeAdapter {
   }
   async voiceStart(id: string) {
     this.started.push(id);
+    await this.startGate;
   }
   async voiceStop(id: string) {
     this.stopped.push(id);
@@ -555,4 +557,90 @@ test("native failures use readable messages and toggle failures stay visible wit
     g.service.snapshot?.reason,
     "Could not connect the call. Try again.",
   );
+});
+
+test("channel preparation does not consume the invitation's ringing lifetime", async () => {
+  const f = fixture(), gate = deferred();
+  f.native.gate = gate.promise;
+  const starting = f.service.start(f.remote.nodeId);
+  await turn();
+  f.setNow(NOW + 8_000);
+  gate.resolve();
+  await starting;
+  const invitation = decodeCallSignal(f.sent[0].wire, NOW + 8_000)!;
+  assert.equal(invitation.expiresAt, NOW + 38_000);
+  f.setNow(NOW + 30_000);
+  await f.service.tick();
+  assert.equal(f.service.snapshot?.state, "ringing", "caller and callee must honor the same invitation lifetime");
+  f.setNow(invitation.expiresAt);
+  await f.service.tick();
+  assert.equal(f.service.snapshot?.state, "ended");
+  assert.equal(f.service.snapshot?.reason, "No answer");
+});
+
+test("delayed audio startup cannot mark an expired connection active even before the next timer tick", async () => {
+  const f = fixture(), gate = deferred();
+  await f.service.start(f.remote.nodeId);
+  const id = f.service.snapshot!.callId;
+  await f.service.receive("c:remote", f.wire({ kind: "accept", version: 1, callId: id, psm: 133 }));
+  f.native.startGate = gate.promise;
+  const ready = f.service.onVoice({ callId: id, state: "ready" });
+  await turn();
+  f.setNow(NOW + 30_001);
+  gate.resolve();
+  await ready;
+  assert.equal(f.service.snapshot?.state, "ended");
+  assert.equal(f.service.snapshot?.reason, "Connection timed out");
+  assert.equal(f.service.snapshot?.startedAt, undefined);
+  assert.ok(f.native.stopped.includes(id));
+  assert.ok(f.changes.every((view) => view?.state !== "active"));
+});
+
+test("timing out after the person accepts reports connection failure rather than no answer", async () => {
+  const f = fixture(), incoming = invite(), gate = deferred();
+  await f.service.receive("p:remote", f.wire(incoming));
+  f.native.gate = gate.promise;
+  const accepting = f.service.accept(incoming.callId);
+  await turn();
+  f.setNow(NOW + 30_000);
+  await f.service.tick();
+  gate.resolve();
+  await accepting;
+  assert.equal(f.service.snapshot?.state, "ended");
+  assert.equal(f.service.snapshot?.reason, "Connection timed out");
+  assert.equal(f.native.started.length, 0);
+});
+
+test("call failures keep global UI messages readable without hiding preflight or control errors", async () => {
+  const f = fixture();
+  f.setConnected(false);
+  await f.service.start(f.remote.nodeId);
+  assert.equal((f.errors.at(-1) as Error).message, "This person is not connected.");
+  f.setConnected(true);
+  f.native.error = new Error("PRIVATE_NATIVE_DOMAIN internal stack details");
+  await f.service.start(f.remote.nodeId);
+  assert.equal((f.errors.at(-1) as Error).message, "Could not connect the call. Try again.");
+  assert.equal(f.service.snapshot?.reason, "Could not connect the call. Try again.");
+  f.native.error = undefined;
+  await f.service.start(f.remote.nodeId);
+  const id = f.service.snapshot!.callId;
+  await f.service.receive("c:remote", f.wire({ kind: "accept", version: 1, callId: id, psm: 133 }));
+  await f.service.onVoice({ callId: id, state: "ready" });
+  f.native.voiceSetMuted = async () => { throw new Error("PRIVATE_NATIVE_DOMAIN microphone details"); };
+  await f.service.setMuted(true, id);
+  assert.equal((f.errors.at(-1) as Error).message, "Could not change the microphone. Try again.");
+  assert.equal(f.service.snapshot?.state, "active");
+  await f.service.onVoice({ callId: id, state: "failed", reason: "PRIVATE_NATIVE_DOMAIN unknown failure" });
+  assert.equal(f.service.snapshot?.reason, "The call connection failed. Try again.");
+  assert.ok(f.errors.every((error) => !(error as Error).message.includes("PRIVATE_NATIVE_DOMAIN")));
+});
+
+test("a failed end notification remains visible as a readable remote-confirmation warning", async () => {
+  const f = fixture();
+  await f.service.start(f.remote.nodeId);
+  f.setFailSend(true);
+  await f.service.hangup();
+  assert.equal(f.service.snapshot?.state, "ended");
+  assert.equal((f.errors.at(-1) as Error).message,
+    "Call ended on this phone. Could not confirm it with the other phone.");
 });
