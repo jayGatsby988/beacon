@@ -157,7 +157,18 @@ export class BeaconService {
       completeRequest: this.completeRequest,
       setRelayEnabled: this.setRelayEnabled,
       saveSettings: this.saveSettings,
-      downloadMap: () => this.mapsRequired().download(),
+      downloadMap: () => this.mapsRequired().download(async () => {
+        const current = await Location.getForegroundPermissionsAsync();
+        if (this.disposed) return;
+        const permission = current.status === "undetermined"
+          ? await Location.requestForegroundPermissionsAsync() : current;
+        if (this.disposed) return;
+        this.update({ locationPermission: permission.status });
+        if (!permission.granted)
+          throw new Error("Allow location in phone Settings to save your area.");
+        await this.refreshLocation();
+      }),
+      cancelMapDownload: () => this.mapsRequired().cancel(),
       removeMap: () => this.mapsRequired().remove(),
       syncNow: this.syncNow,
       exportDiagnostics: this.exportDiagnostics,

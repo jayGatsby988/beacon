@@ -79,6 +79,8 @@ export interface EventView {
   toNodeId?: string;
 }
 export interface MapState {
+  /** A previously completed style is still usable while its replacement downloads. */
+  savedAvailable?: boolean;
   styleUrl?: string;
   bundled?: boolean;
   bounds?: [number, number, number, number];
@@ -189,6 +191,7 @@ export interface BeaconState {
     mapStyleUrl?: string;
   }): Promise<void>;
   downloadMap(): Promise<void>;
+  cancelMapDownload(): Promise<void>;
   removeMap(): Promise<void>;
   syncNow(): Promise<void>;
   exportDiagnostics(): Promise<void>;
