@@ -82,6 +82,7 @@ function fixture() {
   const readMarkers = new Map<string, number>();
   let readQueries = 0;
   let sendGate: Promise<void> | undefined;
+  const peerGates = new Map<string, Promise<void>>();
   let failSend = false;
   let location: SharedLocation | null = null;
   let locationGate: Promise<void> | undefined;
@@ -100,7 +101,7 @@ function fixture() {
         presenceAttempts++;
         await presenceGate;
       }
-      if (JSON.parse(wire).type === "direct") await sendGate;
+      if (JSON.parse(wire).type === "direct") await (peerGates.get(peerId) ?? sendGate);
       if (JSON.parse(wire).type === "location") await locationGate;
       sent.push({ peerId, wire, scope: currentScope });
     },
@@ -135,6 +136,7 @@ function fixture() {
     connect,
     presence,
     readMarkers,
+    peerGates,
     readQueries: () => readQueries,
     presenceAttempts: () => presenceAttempts,
     presenceGate: (next: Promise<void> | undefined) => {
@@ -161,6 +163,117 @@ function fixture() {
     },
   };
 }
+
+test("one stalled peer cannot block another peer's message receipt", async (t) => {
+  const h = fixture();
+  const gate = deferred();
+  t.after(async () => { gate.resolve(); await h.service.settle(); });
+  await h.connect();
+  h.peerGates.set("peer", gate.promise);
+  await h.service.sendText(h.remote.nodeId, "Slow link");
+  await turn();
+  const other = createIdentity(randomBytes);
+  await h.service.connect("other");
+  await h.service.receive("other", createPresence(other, "Other", null, NOW, randomBytes));
+  const incoming = createDirectMessage(other, h.local.publicKey, "Need a receipt", null, NOW, randomBytes);
+  await h.service.receive("other", encodeDirect(incoming));
+  await turn();
+  assert.ok(h.sent.some((s) => s.peerId === "other" && decodeDirect(s.wire, NOW)),
+    "a healthy peer must receive its encrypted receipt before the slow write completes");
+  assert.equal(h.repository.delivered.size, 0);
+});
+
+test("reconnection drains the durable queue before an old native write settles", async (t) => {
+  const h = fixture();
+  const gate = deferred();
+  t.after(async () => { gate.resolve(); await h.service.settle(); });
+  await h.connect();
+  h.peerGates.set("peer", gate.promise);
+  await h.service.sendText(h.remote.nodeId, "First queued message");
+  await turn();
+  h.service.disconnect("peer");
+  await h.service.sendText(h.remote.nodeId, "Queued out of range");
+  await h.service.connect("reconnected");
+  await h.service.receive("reconnected", h.presence());
+  await turn();
+  const packets = [...h.repository.messages.values()];
+  const resent = h.sent.filter((s) => s.peerId === "reconnected").map((s) => decodeDirect(s.wire, NOW)?.id);
+  for (const packet of packets) assert.ok(resent.includes(packet.id), "reconnected peer must make immediate progress");
+  assert.equal(h.repository.delivered.size, 0, "write completion is not recipient acknowledgment");
+  gate.resolve();
+  await h.service.flush();
+  await turn();
+  assert.equal(h.sent.filter((s) => s.peerId === "peer" && decodeDirect(s.wire, NOW)).length, 1,
+    "retired session must not send the second queued message");
+});
+
+test("repeated flush requests do not overlap native writes or duplicate a peer's queue", async (t) => {
+  const h = fixture();
+  const gate = deferred();
+  t.after(async () => { gate.resolve(); await h.service.settle(); });
+  await h.connect();
+  h.gate(gate.promise);
+  await h.service.sendText(h.remote.nodeId, "First");
+  await h.service.sendText(h.remote.nodeId, "Second");
+  const flushing = Promise.all(Array.from({ length: 20 }, () => h.service.flush()));
+  await turn();
+  gate.resolve();
+  await flushing;
+  const ids = h.sent.flatMap((s) => {
+    const packet = decodeDirect(s.wire, NOW);
+    return packet ? [packet.id] : [];
+  });
+  assert.equal(ids.length, 2);
+  assert.equal(new Set(ids).size, 2);
+});
+
+test("a retired private session cannot resume its queue through a replacement public session", async (t) => {
+  const h = fixture();
+  const gate = deferred();
+  t.after(async () => { gate.resolve(); await h.service.settle(); });
+  const privateScope = "a".repeat(64);
+  h.setScope(privateScope);
+  await h.connect();
+  h.gate(gate.promise);
+  await h.service.sendText(h.remote.nodeId, "Private write already started");
+  await turn();
+  await h.service.sendText(h.remote.nodeId, "Private write still queued");
+  h.setScope(null);
+  h.gate(undefined);
+  await h.connect();
+  await h.service.sendText(h.remote.nodeId, "Public session");
+  await h.service.flush();
+  const directSends = () => h.sent.filter((s) => decodeDirect(s.wire, NOW));
+  assert.equal(directSends().length, 1, "replacement session progresses before the old write settles");
+  assert.equal(directSends()[0].scope, null);
+  gate.resolve();
+  await turn();
+  await h.service.flush();
+  assert.equal(directSends().filter((s) => s.scope === privateScope).length, 1,
+    "only the private write submitted before the switch may finish");
+  assert.equal(directSends().filter((s) => s.scope === null).length, 1);
+});
+
+test("periodic message retry is independent of stalled presence and location updates", async (t) => {
+  for (const kind of ["presence", "location"] as const) {
+    const h = fixture();
+    const gate = deferred();
+    t.after(async () => { gate.resolve(); await h.service.settle(); });
+    await h.connect();
+    await h.service.sendText(h.remote.nodeId, "Retry until acknowledged");
+    await h.service.flush();
+    const before = h.sent.filter((s) => decodeDirect(s.wire, NOW)).length;
+    h.setNow(NOW + 31_000);
+    if (kind === "presence") h.presenceGate(gate.promise);
+    else { h.setLocation(syntheticPoint()); h.locationGate(gate.promise); }
+    const ticking = h.service.tick();
+    await turn();
+    assert.ok(h.sent.filter((s) => decodeDirect(s.wire, NOW)).length > before,
+      `${kind} must not hold up retries of unacknowledged messages`);
+    gate.resolve();
+    await ticking;
+  }
+});
 
 test("unacknowledged receipt backlog cannot starve later direct messages on periodic retry", async (t) => {
   const h = fixture();

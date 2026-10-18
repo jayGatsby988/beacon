@@ -83,12 +83,12 @@ const VOICE_REASONS: Record<string, string> = {
   background: "Call ended when Beacon left the foreground.",
   audio_interrupted: "Call interrupted by another audio session.",
   audio_route_lost: "Audio device disconnected.",
-  bluetooth_disconnected: "Bluetooth connection lost.",
+  bluetooth_disconnected: "Bluetooth connection lost. Move closer, keep Beacon open, then call again.",
   bluetooth_stopped: "Bluetooth stopped.",
   local_ended: "Call ended",
   remote_ended: "Call ended",
-  voice_timeout: "Bluetooth connection timed out.",
-  voice_backpressure: "Bluetooth connection could not keep up with audio.",
+  voice_timeout: "Bluetooth connection timed out. Move closer, keep Beacon open, then call again.",
+  voice_backpressure: "Bluetooth connection could not keep up with audio. Move closer and call again.",
   voice_authentication_failed: "Could not verify the voice connection.",
   voice_encryption_failed: "Could not secure the voice connection.",
   channel_open_failed: "Could not open the Bluetooth voice connection.",
@@ -676,7 +676,7 @@ export class CallService {
   peerDisconnected(peerId: string): Promise<void> {
     return this.run(async () => {
       if (this.active?.peerId === peerId)
-        await this.finish(this.active, "Disconnected");
+        await this.finish(this.active, VOICE_REASONS.bluetooth_disconnected);
     });
   }
   tick(): Promise<void> {

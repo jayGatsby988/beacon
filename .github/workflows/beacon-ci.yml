@@ -40,3 +40,4 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 scripts/test-native-framing.py --language swift
+      - run: python3 scripts/check-native-voice.py

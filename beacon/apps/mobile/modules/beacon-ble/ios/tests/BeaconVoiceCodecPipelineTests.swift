@@ -20,7 +20,11 @@ struct BeaconVoiceCodecPipelineTests {
     let slots = DispatchSemaphore(value: BeaconVoicePCM.playbackFrameLimit)
     var admitted = 0
     for frame in 0..<15 {
-      let values = (0..<320).map { Float(0.2 * sin(2 * Double.pi * 440 * Double(frame * 320 + $0) / 16000)) }
+      let radiansPerSample = 2.0 * Double.pi * 440.0 / 16000.0
+      let values: [Float] = (0..<320).map { sample in
+        let position = Double(frame * 320 + sample)
+        return Float(0.2 * sin(radiansPerSample * position))
+      }
       let pcm = values.withUnsafeBytes { Data($0) }
       guard let packet = encoder.encodeSamples(pcm), let decoded = decoder.decodePacket(packet) else { fatalError("Codec failure") }
       guard let permit = BeaconVoiceAudioPermit(slots) else {

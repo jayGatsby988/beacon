@@ -52,6 +52,8 @@ export class SocialService {
       sends: number;
       attempts: Map<string, number>;
       attemptOrder: number;
+      flushing?: Promise<void>;
+      flushAgain: boolean;
     }
   >();
   private contentCache = new Map<
@@ -64,8 +66,9 @@ export class SocialService {
   private generation = 0;
   private refreshing?: Promise<void>;
   private refreshAgain = false;
-  private flushing?: Promise<void>;
-  private flushAgain = false;
+  // Keep retired session writes tracked for shutdown without making new links
+  // wait for an old native callback to settle after a disconnect.
+  private flushes = new Set<Promise<void>>();
   private now: () => number;
   private locations = new Map<
     string,
@@ -109,6 +112,7 @@ export class SocialService {
         sends: 0,
         attempts: new Map(),
         attemptOrder: 0,
+        flushAgain: false,
       });
     }
     await this.announce(peerId);
@@ -145,13 +149,14 @@ export class SocialService {
     this.reset();
     while (
       this.operations.size ||
-      this.flushing ||
+      this.flushes.size ||
       this.refreshing ||
       this.locationSending
     ) {
       await Promise.allSettled([
         ...this.operations,
-        ...[this.flushing, this.refreshing, this.locationSending].filter(
+        ...this.flushes,
+        ...[this.refreshing, this.locationSending].filter(
           (p): p is Promise<void> => Boolean(p),
         ),
       ]);
@@ -541,13 +546,10 @@ export class SocialService {
     return this.track(() => this.tickOnce());
   }
   private async tickOnce() {
+    const announcements: Promise<void>[] = [];
     for (const [peerId, session] of this.sessions) {
       if (this.now() - session.lastPresence >= 30_000) {
-        try {
-          await this.announce(peerId);
-        } catch (error) {
-          this.options.onError(error);
-        }
+        announcements.push(this.announce(peerId).catch(this.options.onError));
       }
       // A native write completing is not delivery; retry undelivered packets while connected too.
       // Receipts have no receipts of their own. Retry messages, retaining receipt suppression
@@ -555,85 +557,94 @@ export class SocialService {
       for (const id of session.sent)
         if (!session.receipts.has(id)) session.sent.delete(id);
     }
-    await this.sendLocations();
-    await this.flush();
-    await this.refresh();
+    // Discovery/location traffic can stall independently. Start message retry
+    // and the visible snapshot immediately, while still tracking all work.
+    await Promise.all([
+      ...announcements,
+      this.sendLocations(),
+      this.flush(),
+      this.refresh(),
+    ]);
   }
   flush(): Promise<void> {
     if (this.disposed) return Promise.resolve();
-    if (this.flushing) {
-      this.flushAgain = true;
-      return this.flushing;
+    // Each link has its own serialized drain. A weak or retired peer cannot
+    // monopolize all recipients, and repeat flush requests stay coalesced.
+    return Promise.all(
+      [...this.sessions.keys()].map((peerId) => this.flushPeer(peerId)),
+    ).then(() => {});
+  }
+  private flushPeer(peerId: string): Promise<void> {
+    const session = this.sessions.get(peerId);
+    if (!session?.nodeId || this.disposed) return Promise.resolve();
+    if (session.flushing) {
+      session.flushAgain = true;
+      return session.flushing;
     }
-    this.flushing = (async () => {
+    const generation = this.generation;
+    const scope = this.options.scope();
+    const current = () =>
+      !this.disposed &&
+      generation === this.generation &&
+      scope === this.options.scope() &&
+      this.sessions.get(peerId) === session;
+    const pending = (async () => {
       do {
-        this.flushAgain = false;
-        const generation = this.generation;
-        const scope = this.options.scope();
+        session.flushAgain = false;
         const delivered = new Set(await this.options.repository.deliveredIds());
+        if (!current()) return;
         const packets = await this.options.repository.packets();
-        for (const [peerId, session] of this.sessions) {
-          if (
-            !session.nodeId ||
-            this.disposed ||
-            generation !== this.generation
-          )
-            continue;
-          this.resetRate(session);
-          const queue = packets.filter(
-            (p) =>
-              p.scope === scope &&
-              p.origin === this.options.identity.nodeId &&
-              p.destination === session.nodeId &&
-              p.expiresAt > this.now() &&
-              !delivered.has(p.id),
-          );
-          // Prefer packets that have waited longest for an attempt. Retrying the
-          // oldest 32 every tick otherwise permanently starves newer messages and receipts.
-          const queuedIds = new Set(queue.map((packet) => packet.id));
-          for (const id of session.attempts.keys())
-            if (!queuedIds.has(id)) session.attempts.delete(id);
-          queue.sort(
-            (a, b) =>
-              (session.attempts.get(a.id) ?? 0) - (session.attempts.get(b.id) ?? 0),
-          );
-          let sent = 0;
-          for (const packet of queue) {
-            if (
-              this.disposed ||
-              generation !== this.generation ||
-              scope !== this.options.scope() ||
-              this.sessions.get(peerId) !== session ||
-              session.sends >= 240
-            )
-              break;
-            if (session.sent.has(packet.id)) continue;
-            if (++sent > 32) break;
-            const content = this.content(packet);
-            if (!content) continue;
-            if (session.sent.size >= 1000) {
-              const first = session.sent.values().next().value!;
-              session.sent.delete(first);
-              session.receipts.delete(first);
-            }
-            session.attempts.set(packet.id, ++session.attemptOrder);
-            session.sent.add(packet.id);
-            session.sends++;
-            if (content.kind === "receipt") session.receipts.add(packet.id);
-            try {
-              await this.options.send(peerId, packet.wire, scope);
-            } catch (error) {
-              session.sent.delete(packet.id);
-              this.options.onError(error);
-              break;
-            }
+        if (!current()) return;
+        this.resetRate(session);
+        const queue = packets.filter(
+          (p) =>
+            p.scope === scope &&
+            p.origin === this.options.identity.nodeId &&
+            p.destination === session.nodeId &&
+            p.expiresAt > this.now() &&
+            !delivered.has(p.id),
+        );
+        // Prefer packets that have waited longest for an attempt. Retrying the
+        // oldest 32 every tick otherwise permanently starves newer messages and receipts.
+        const queuedIds = new Set(queue.map((packet) => packet.id));
+        for (const id of session.attempts.keys())
+          if (!queuedIds.has(id)) session.attempts.delete(id);
+        queue.sort(
+          (a, b) =>
+            (session.attempts.get(a.id) ?? 0) - (session.attempts.get(b.id) ?? 0),
+        );
+        let sent = 0;
+        for (const packet of queue) {
+          if (!current() || session.sends >= 240) break;
+          if (session.sent.has(packet.id)) continue;
+          if (++sent > 32) break;
+          const content = this.content(packet);
+          if (!content) continue;
+          if (session.sent.size >= 1000) {
+            const first = session.sent.values().next().value!;
+            session.sent.delete(first);
+            session.receipts.delete(first);
+          }
+          session.attempts.set(packet.id, ++session.attemptOrder);
+          session.sent.add(packet.id);
+          session.sends++;
+          if (content.kind === "receipt") session.receipts.add(packet.id);
+          try {
+            await this.options.send(peerId, packet.wire, scope);
+          } catch (error) {
+            session.sent.delete(packet.id);
+            if (current()) this.options.onError(error);
+            break;
           }
         }
-      } while (this.flushAgain);
+      } while (session.flushAgain && current());
     })().finally(() => {
-      this.flushing = undefined;
+      session.flushing = undefined;
+      this.flushes.delete(pending);
     });
-    return this.flushing;
+    session.flushing = pending;
+    this.flushes.add(pending);
+    return pending;
   }
   markChatRead(nodeId: string) {
     return this.track(() => this.markChatReadOnce(nodeId));

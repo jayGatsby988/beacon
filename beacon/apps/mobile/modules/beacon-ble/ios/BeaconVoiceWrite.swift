@@ -24,9 +24,11 @@ final class BeaconVoiceWrite {
 
   func isStalled(at now: TimeInterval) -> Bool {
     // Unsent audio is expendable and will be discarded after 150 ms by pump.
-    // Control records must leave within two seconds; partial records cannot be
-    // discarded without corrupting the stream, so a 500 ms idle gap ends it.
+    // Control records must leave within two seconds. Partial records cannot be
+    // dropped without corrupting the stream; allow the same bounded recovery
+    // window instead of ending a call on a brief 500 ms radio pause. Unsent
+    // audio still expires at 150 ms, so recovery does not replay a stale backlog.
     if offset == 0 { return !audio && now - created > 2 }
-    return offset < data.count && now - lastProgress > 0.5
+    return offset < data.count && now - lastProgress > 2
   }
 }

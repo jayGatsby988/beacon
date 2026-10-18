@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Check Beacon's real native voice codec and cryptography locally on macOS."""
 from pathlib import Path
+import argparse
 import shutil
 import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parent.parent
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--host-only', action='store_true',
+                    help='Run real macOS codec/crypto/queue tests, explicitly skipping iOS SDK compilation.')
+args = parser.parse_args()
 native = root / 'apps/mobile/modules/beacon-ble/ios'
 opus = native / 'vendor/opus'
 if not shutil.which('xcrun'):
@@ -15,12 +20,15 @@ includes = []
 for folder in ['', 'include', 'src', 'celt', 'silk', 'silk/float']:
     includes.extend(['-I', str(opus / folder)])
 sources = sorted(str(path) for path in opus.rglob('*.c'))
-sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
-subprocess.run(['xcrun', 'clang', '-O2', '-fsyntax-only', '-Werror=implicit-function-declaration',
-                '-target', 'arm64-apple-ios15.1', '-isysroot', sdk, '-DHAVE_CONFIG_H=1',
-                *includes, *sources], check=True)
-subprocess.run(['xcrun', 'clang', '-fsyntax-only', '-fobjc-arc', '-target', 'arm64-apple-ios15.1',
-                '-isysroot', sdk, '-I', str(opus / 'include'), str(native / 'BeaconOpusCodec.m')], check=True)
+if args.host_only:
+    print('HOST ONLY: skipping iOS SDK compilation; this does not validate an iPhone build.', flush=True)
+else:
+    sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
+    subprocess.run(['xcrun', 'clang', '-O2', '-fsyntax-only', '-Werror=implicit-function-declaration',
+                    '-target', 'arm64-apple-ios15.1', '-isysroot', sdk, '-DHAVE_CONFIG_H=1',
+                    *includes, *sources], check=True)
+    subprocess.run(['xcrun', 'clang', '-fsyntax-only', '-fobjc-arc', '-target', 'arm64-apple-ios15.1',
+                    '-isysroot', sdk, '-I', str(opus / 'include'), str(native / 'BeaconOpusCodec.m')], check=True)
 with tempfile.TemporaryDirectory(prefix='beacon-voice-check-') as temporary:
     area = Path(temporary)
     # Compile the exact Foundation-only production store, excluding the iOS

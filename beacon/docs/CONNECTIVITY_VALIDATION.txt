@@ -1,0 +1,63 @@
+Beacon connection recovery — validation and device handoff
+
+Changes
+- Direct-message drains run independently per BLE session. A stalled peer or
+  retired connection cannot hold up another recipient or a new connection.
+- Presence and opt-in location updates no longer block periodic chat retries.
+- An iPhone call tolerates up to two seconds without progress on a partly sent
+  encrypted audio record, instead of ending after 500 ms. Unsent stale audio
+  still expires after 150 ms, and stalled streams still terminate. This is a
+  bounded recovery window, not a Bluetooth range extension.
+- Lost-connection call messages explain how to retry. A fresh call uses a fresh
+  key; late events from an old connection cannot terminate the replacement call.
+
+Evidence
+- Three new regression tests failed on the base revision before the queue fix:
+  stalled peer blocks another receipt, retired write blocks a reconnected queue,
+  and stalled presence blocks periodic retry. All pass with the fix.
+- Added checks cover repeated concurrent flush requests, private/public session
+  replacement, and disconnect/redial with stale callbacks.
+- Host Swift tests exercise production framing, voice crypto, write deadlines,
+  real Opus encoding/decoding and PCM conversion/offline playback. Synthetic
+  audio tests do not access a microphone or a Bluetooth radio.
+- Run the standard workspace checks with Node 24. Native host tests are:
+    python3 scripts/test-native-framing.py --language swift
+    python3 scripts/check-native-voice.py --host-only
+  On a Mac with full Xcode, omit --host-only to include iOS SDK codec compilation.
+  The manual Beacon checks GitHub workflow also runs the full native voice suite.
+
+Physical validation still required
+This computer detected both attached iPhones, but has no full Xcode/iPhone SDK
+installation. No updated app has been built or installed on either phone here.
+The existing installed app cannot validate these source changes.
+
+Use a Mac with Xcode to build this exact branch. Follow the repository's iOS
+setup and scripts/build-ios-device.sh with the owner's development team. Install
+the new build on BOTH phones, retaining app data. Record the tested commit.
+
+Two-phone acceptance test (foreground, Bluetooth on, Wi-Fi and cellular off)
+1. Verify the same app build and same Beacon group on both phones. Place them
+   side by side. Send a different numbered message each way. Each should appear
+   exactly once; the sender must stay Queued until a recipient receipt arrives.
+2. Turn Bluetooth off on B. Send three numbered messages on A. They must remain
+   visible and queued. Restore Bluetooth on B, keep both apps open, and record
+   reconnection time plus time until all three messages and receipts arrive.
+3. Repeat step 2 five times. Include one app relaunch while disconnected, then
+   reconnect. Check that saved messages survive and the inbox has no duplicates.
+4. Call A to B and answer. Speak in BOTH directions; confirm speech comes from
+   the receiving phone. Test mute/unmute and speaker. Repeat with B calling A.
+5. Disconnect during a call. Confirm both devices leave the active call, bring
+   them together, wait for reconnection, then place a NEW call. No automatic
+   microphone restart or automatic redial is expected.
+6. Walk apart safely and note walls, approximate distance, phone models and
+   whether chat or voice fails first. Return side by side and repeat steps 1/4.
+   This measures actual conditions; there is no promised distance in meters.
+
+Three phones are required to validate an actual A -> B -> C SOS relay with
+A and C unable to communicate directly. Two phones cannot prove multihop.
+Direct chat and live voice still require direct contact; they are not relayed.
+
+Record failure time, app commit, direction, visible status, and native disconnect
+reason where available. Never label this build perfect or hardware-validated
+until these device tests have actually run. Core operation still uses Bluetooth;
+no internet, Wi-Fi fallback, cloud dependency, or simulated BLE was added.

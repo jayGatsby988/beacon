@@ -374,6 +374,35 @@ test("timeout, disconnect, native failure, scope reset and disposal terminate ca
     assert.equal(f.native.started.length, 0);
   }
 });
+test("a dropped active call can be redialed on a new link without stale events ending it", async () => {
+  const f = fixture();
+  await f.service.start(f.remote.nodeId);
+  const oldId = f.service.snapshot!.callId;
+  await f.service.receive("c:remote", f.wire({ kind: "accept", version: 1, callId: oldId, psm: 133 }));
+  await f.service.onVoice({ callId: oldId, state: "ready" });
+  assert.equal(f.service.snapshot?.state, "active");
+  f.setConnected(false);
+  await f.service.peerDisconnected("c:remote");
+  assert.equal(f.service.snapshot?.state, "ended");
+  assert.match(f.service.snapshot!.reason!, /Move closer/);
+  assert.ok(f.native.stopped.includes(oldId));
+
+  f.setConnected(true);
+  f.setPeer("c:reconnected");
+  await f.service.start(f.remote.nodeId);
+  const newId = f.service.snapshot!.callId;
+  assert.notEqual(newId, oldId);
+  assert.notEqual(f.native.prepared[0].keyBase64, f.native.prepared[1].keyBase64);
+  await f.service.receive("c:reconnected", f.wire({ kind: "accept", version: 1, callId: newId, psm: 133 }));
+  await f.service.onVoice({ callId: newId, state: "ready" });
+  await f.service.peerDisconnected("c:remote");
+  await f.service.onVoice({ callId: oldId, state: "failed", reason: "voice_timeout" });
+  assert.equal(f.service.snapshot?.callId, newId);
+  assert.equal(f.service.snapshot?.state, "active");
+  assert.deepEqual(f.native.started, [oldId, newId]);
+  await f.service.dispose();
+});
+
 test("reset/disposal during prepare prevent late invitation and UI updates; disposal drains work", async () => {
   for (const dispose of [false, true]) {
     const f = fixture(),
