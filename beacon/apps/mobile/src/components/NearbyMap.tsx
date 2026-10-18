@@ -88,7 +88,6 @@ export default function NearbyMap({
   ownLocation,
   focusRevision,
   pins,
-  connectedCount,
   internet,
   map,
   onLocate,
@@ -217,9 +216,7 @@ export default function NearbyMap({
           <View style={s.unavailable}>
             <MapPin size={30} color={c.secondary} />
             <Text style={s.name}>Map unavailable</Text>
-            <Text style={s.caption}>
-              People and messages are still available below.
-            </Text>
+            <Text style={s.caption}>Your conversations are in People.</Text>
           </View>
         ) : (
           <MapLibre.MapView
@@ -297,18 +294,11 @@ export default function NearbyMap({
             ))}
           </MapLibre.MapView>
         )}
-        <View pointerEvents="none" style={s.mapTag}>
-          <View style={s.tagDot} />
-          <Text style={s.tagText}>
-            {!online && outsideCoverage
-              ? "Map not saved here"
-              : validPins.length
-                ? `${validPins.length} on the map`
-                : connectedCount
-                  ? `${connectedCount} connected · no positions`
-                  : "No one connected yet"}
-          </Text>
-        </View>
+        {!online && outsideCoverage && (
+          <View pointerEvents="none" style={s.mapTag}>
+            <Text style={s.tagText}>No offline streets here</Text>
+          </View>
+        )}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Find my location and show nearby people"
@@ -344,12 +334,11 @@ export default function NearbyMap({
             ? "Online map"
             : outsideCoverage
               ? saved
-                ? "Outside saved area · positions still shown"
-                : "Outside UW campus · positions still shown"
+                ? "Outside saved area"
+                : "Outside UW area"
               : saved
-                ? "Saved area · offline map"
-                : "UW campus · offline map"}
-          {!coordinates.length ? " · area overview" : ""}
+                ? "Offline · saved area"
+                : "Offline · UW area"}
         </Text>
         {own && <Text style={s.caption}>You · {locationLabel(own, now)}</Text>}
         <View style={s.mapActions}>
@@ -459,7 +448,7 @@ export default function NearbyMap({
 }
 const s = StyleSheet.create({
   frame: {
-    borderRadius: 26,
+    borderRadius: 20,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: c.border,
@@ -486,7 +475,6 @@ const s = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  tagDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: c.text },
   tagText: {
     fontFamily: fonts.medium,
     fontSize: 12,
@@ -537,12 +525,12 @@ const s = StyleSheet.create({
   },
   youText: { fontFamily: fonts.medium, fontSize: 11, color: c.text },
   mapFooter: {
-    padding: 14,
-    gap: 3,
+    padding: 16,
+    gap: 6,
     borderTopWidth: 1,
     borderTopColor: c.border,
   },
-  mapActions: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  mapActions: { flexDirection: "row", flexWrap: "wrap", gap: 16 },
   mapAction: { minHeight: 48, justifyContent: "center", paddingHorizontal: 4 },
   actionText: { fontFamily: fonts.medium, fontSize: 13, color: c.text },
   caption: {

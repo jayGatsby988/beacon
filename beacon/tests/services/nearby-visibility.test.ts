@@ -30,6 +30,7 @@ function repository() {
 }
 
 function screen(getState: () => any, now: () => number) {
+  let mode: "people" | "map" = "people";
   const container = ({ children }: any) => React.createElement("div", null, children);
   const text = ({ children }: any) => React.createElement("span", null, children);
   const button = ({ children, accessibilityLabel }: any) => React.createElement("button", { "aria-label": accessibilityLabel }, children);
@@ -46,7 +47,11 @@ function screen(getState: () => any, now: () => number) {
     }, children),
   };
   const require = (name: string): any => {
-    if (name === "react") return React;
+    if (name === "react") return {
+      ...React,
+      // Select each real view without simulating native button dispatch.
+      useState: (initial: any) => React.useState(initial === "people" ? mode : initial),
+    };
     if (name === "react/jsx-runtime") return jsx;
     if (name === "react-native") return native;
     if (name === "expo-router") return { router: { push: () => {} }, useFocusEffect: () => {} };
@@ -76,7 +81,10 @@ function screen(getState: () => any, now: () => number) {
   };
   const mapModule = load("../../apps/mobile/src/components/NearbyMap.tsx");
   const Nearby = load("../../apps/mobile/app/(tabs)/nearby.tsx").default;
-  return () => renderToStaticMarkup(React.createElement(Nearby));
+  return (selected: "people" | "map" = "people") => {
+    mode = selected;
+    return renderToStaticMarkup(React.createElement(Nearby));
+  };
 }
 
 for (const scope of [null, "a".repeat(64)]) {
@@ -121,30 +129,31 @@ for (const scope of [null, "a".repeat(64)]) {
       await drain();
       assert.equal(b.people.find((person) => person.nodeId === a.identity.nodeId)?.connected, true);
       assert.match(render(), /Message Test person 0\. Connected/);
-      assert.ok(!render().includes(marker), "identity alone must not invent a map coordinate");
+      assert.ok(!render("map").includes(marker), "identity alone must not invent a map coordinate");
       a.location = { latitude: 47.655, longitude: -122.306, capturedAt: now };
       await a.service.announceLocation(); await drain();
-      assert.ok(render().includes(marker), "signed received location must reach the actual PointAnnotation");
-      assert.ok(render().includes('data-coordinate="[-122.306,47.655]"'));
+      assert.ok(!render().includes(marker), "People remains a focused conversation list without a second map");
+      assert.ok(render("map").includes(marker), "signed received location must reach the actual PointAnnotation");
+      assert.ok(render("map").includes('data-coordinate="[-122.306,47.655]"'));
       a.location = null;
       now++;
       await a.service.announceLocation(); await drain();
-      assert.ok(!render().includes(marker), "withdrawal removes pin");
+      assert.ok(!render("map").includes(marker), "withdrawal removes pin");
       assert.match(render(), /Message Test person 0\. Connected/);
       a.location = { latitude: 47.655, longitude: -122.306, capturedAt: ++now };
       await a.service.announceLocation(); await drain();
       for (let index = 0; index < phones.length; index++) phones[index].service.disconnect(peers[index]);
       await Promise.all(phones.map((phone) => phone.service.refresh()));
-      assert.ok(!render().includes(marker), "disconnect removes pin immediately");
+      assert.ok(!render("map").includes(marker), "disconnect removes pin immediately");
       assert.match(render(), /Message Test person 0\. Last seen/);
       now++;
       peers[0] = "c:new"; peers[1] = "p:new";
       await Promise.all(phones.map((phone, index) => phone.service.connect(peers[index])));
       await drain();
-      assert.ok(render().includes(marker), "fresh signed presence/location on new native session restores pin");
+      assert.ok(render("map").includes(marker), "fresh signed presence/location on new native session restores pin");
       b.scope = scope ? null : "b".repeat(64);
       b.service.reset(); await b.service.refresh();
-      assert.ok(!render().includes(marker));
+      assert.ok(!render("map").includes(marker));
       assert.ok(!render().includes("Message Test person 0"), "other-audience people stay hidden");
       assert.deepEqual(errors, []);
     } finally {
