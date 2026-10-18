@@ -42,7 +42,7 @@ The service tests explicitly mock native Bluetooth and operating-system APIs. Th
 
 For a physical check, update both phones, discover each other in Nearby, exchange a direct message and recipient acknowledgment, then join the same invite and repeat with a group SOS. A phone in Nearby or a different group must not receive that private request. Disconnect/reconnect and restart each phone to check queued delivery and selected-group restoration. These checks remain separate from the existing three-phone SOS relay acceptance procedure in [DEVICE_ACCEPTANCE.md](DEVICE_ACCEPTANCE.md).
 
-### Final native build — 2026-10-18 06:45 UTC
+### Pre-scene native build — 2026-10-18 06:45 UTC
 
 Mobile/API typecheck and the incremental signed iOS Release build passed with Xcode 27.1, iOS deployment target 15.1, and two build jobs. The build used the generic iOS destination because the intended phone was disconnected. `codesign --verify --deep --strict` passed, and the final provisioning profile matches `org.beacon.community.dev`, includes the intended iPhone, and expires on 2026-10-25 at 05:51 UTC.
 
@@ -60,4 +60,10 @@ After the user enabled Nearby sharing, a fresh read-only snapshot from the conne
 
 ### Third phone installation
 
-The user subsequently connected Vaibhav's iPhone 18 Pro Max. The same final build installed successfully; its embedded bundle hash matches the build above, the provisioning profile includes this device, and strict signature verification passes. Launch was denied by iOS with a security/developer-trust error (CoreDevice 10002, FBSOpenApplicationErrorDomain 3). The user was asked to trust the developer profile in Settings before retrying. Installation is confirmed, but startup on this third phone remains pending. Local evidence is in `tmp/latest-vaibhav-install.json` and `tmp/latest-vaibhav-launch.json`.
+The user subsequently connected Vaibhav's iPhone 18 Pro Max. The same build installed successfully; the provisioning profile includes this device and strict signature verification passed. Initial launch was denied pending developer trust. After trust was granted, actual process/crash checks exposed a separate iOS 27 failure: UIKit requires scene lifecycle adoption for builds using the latest SDK. The earlier iOS 26 phones did not encounter this requirement.
+
+### Scene-compatible build — 2026-10-18 07:08 UTC
+
+The native startup fix uses one scene-owned window and preserves the Expo factory, links, and lifecycle subscribers. Its config plugin and Swift template are committed so Expo prebuild retains the fix. The signed Release build and four new plugin tests pass; the full workspace now passes 90 tests with real local TimescaleDB and no skips, plus typechecking and lint. The JavaScript bundle hash remains the same as above because this correction changes native startup.
+
+The corrected build installed and launched successfully on Vaibhav's iOS 27.0.1 phone. Its process was observed running, both request and social databases initialized and passed integrity checks, and the user confirmed reaching Home after setup. Saved setup and two freshly discovered Nearby contacts were then verified in a read-only snapshot. No new Beacon crash reports were present at the 07:09:02 UTC recheck. Direct-message packets remained zero, so no message exchange is inferred. Native build/install/startup files are under `tmp/scene-lifecycle-*`; [sanitized evidence](evidence/ios-scene-launch.json) includes executable and JavaScript hashes.

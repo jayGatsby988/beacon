@@ -2,6 +2,14 @@
 
 Implementation, automated checks, native compilation, and physical acceptance are separate evidence. This document does not infer radio delivery or rescue from a build passing.
 
+## iOS 27 startup correction — October 18, 00:08 Pacific
+
+After the third phone's developer profile was trusted, an actual launch check found a native startup crash that the earlier iOS 26 phones did not expose. UIKit trapped in `UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`, before SQLite initialization. Apple requires [scene lifecycle adoption for apps built with the latest SDK on iOS 27](https://developer.apple.com/documentation/uikit/transitioning-to-the-uikit-scene-based-life-cycle).
+
+Beacon now creates its window and starts React Native from a single scene delegate. A local Expo config plugin preserves this change across prebuilds, including Expo startup/splash hooks, initial and subsequent links, and lifecycle subscribers. Four new tests exercise the installed Expo template, repeat application, unsupported-template rejection, and preservation of unrelated manifest settings. The default test command includes them. The complete local Timescale suite passes **90 tests, zero failures, zero skips**; typechecking and lint also pass.
+
+The signed Release build was installed and launched on the iPhone 18 Pro Max running iOS 27.0.1. The app initialized both databases, which passed `quick_check`; the user confirmed reaching Home after setup. A subsequent snapshot confirmed saved setup and two Nearby contacts with fresh Bluetooth announcements. No newer Beacon crash report existed when checked at 00:09:02 Pacific. This validates startup and physical discovery; direct-message delivery, group exchange, and explicit scene background/foreground and deep-link UI checks remain separate acceptance items. See [sanitized device evidence](evidence/ios-scene-launch.json).
+
 ## Subsequent phone reconnection
 
 After the final recheck, the user connected Darshan's iPhone 17 Pro, then Pravanram's iPhone 17 Pro Max. The same final signed build installed and launched successfully on each, and subsequent process queries confirmed Beacon still running. Vaibhav's phone remained unavailable. The second phone's read-only database snapshot had intact request/social databases but Nearby sharing disabled; the user was asked to enable it through the app. This supersedes the installation blocker below, but physical direct-message exchange and private-group delivery between the updated phones remain unverified. See [the installation record](NEARBY_GROUPS.md).

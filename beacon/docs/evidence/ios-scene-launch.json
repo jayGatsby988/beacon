@@ -1,0 +1,40 @@
+{
+  "scope": "Actual iOS27 device startup and nearby discovery; no direct-message or private-group exchange claimed",
+  "recordedAtUTC": "2026-10-18T07:09:30.514031+00:00",
+  "deviceModel": "iPhone 18 Pro Max",
+  "osVersion": "27.0.1",
+  "rootCause": "Missing UIScene lifecycle; UIKit EXC_BREAKPOINT before application database initialization",
+  "fix": "Single-scene lifecycle bridge preserved through Expo prebuild plugin",
+  "bundleIdentifier": "org.beacon.community.dev",
+  "sceneManifest": {
+    "UIApplicationSupportsMultipleScenes": false,
+    "UISceneConfigurations": {
+      "UIWindowSceneSessionRoleApplication": [
+        {
+          "UISceneConfigurationName": "Beacon",
+          "UISceneDelegateClassName": "Beacon.BeaconSceneDelegate"
+        }
+      ]
+    }
+  },
+  "embeddedJavaScriptSHA256": "38cd3a697647d12d82398d7475d547090507628beb572389f26e6822a0561fdf",
+  "signedExecutableSHA256": "3f32a051c74adebb05fcadd6b335678529598d062a1e25273d6fa7675421b7de",
+  "databaseIntegrity": {
+    "requests": "ok",
+    "social": "ok"
+  },
+  "setupComplete": true,
+  "nearbyContactCount": 2,
+  "directPacketCount": 0,
+  "userConfirmedHome": true,
+  "automatedTests": {
+    "passed": 90,
+    "failed": 0,
+    "skipped": 0
+  },
+  "latestCrashReportAtRecheckUTC": "2026-10-18T07:06:08Z",
+  "fixedLaunchUTC": "2026-10-18T07:08:06Z",
+  "crashReportsRecheckedUTC": "2026-10-18T07:09:02Z",
+  "finalProcessObservedRunning": true,
+  "finalProcessRecheckUTC": "2026-10-18T07:09:58.896893+00:00"
+}

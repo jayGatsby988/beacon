@@ -1,6 +1,6 @@
 {
   "scope": "Actual local TimescaleDB + Express HTTP; synthetic signed fixtures; not Tiger Cloud/Vultr/hardware",
-  "testedAt": "2026-10-18T06:45:11.045Z",
+  "testedAt": "2026-10-18T07:07:02.428Z",
   "postgresVersion": "18.6 (Homebrew)",
   "timescaleVersion": "2.30.2",
   "hypertables": [

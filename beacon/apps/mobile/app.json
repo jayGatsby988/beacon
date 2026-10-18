@@ -36,7 +36,8 @@
       "expo-font",
       "expo-location",
       "@maplibre/maplibre-react-native",
-      "./plugins/with-quoted-bundle-path.cjs"
+      "./plugins/with-quoted-bundle-path.cjs",
+      "./plugins/with-scene-lifecycle.cjs"
     ],
     "experiments": {
       "typedRoutes": true

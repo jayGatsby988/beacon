@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "tsx --test tests/**/*.test.ts apps/api/tests/*.test.ts",
+    "test": "tsx --test tests/**/*.test.ts apps/api/tests/*.test.ts apps/mobile/plugins/*.test.cjs",
     "typecheck": "tsc -p apps/mobile/tsconfig.json --noEmit && tsc -p apps/api/tsconfig.json --noEmit",
     "mobile": "npm --workspace @beacon/mobile run start",
     "api": "npm --workspace @beacon/api run dev",
