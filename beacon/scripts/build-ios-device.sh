@@ -53,6 +53,8 @@ command -v xcodebuild >/dev/null || { echo 'Xcode command-line tools are require
 }
 mkdir -p "$BEACON_ROOT/tmp" "$BEACON_ROOT/dist/ios"
 echo 'Building with your existing Xcode account and automatic development provisioning.'
+# Match the app minimum: old resource-bundle pod targets declare iOS 12.4,
+# which Xcode 27 rejects even though the app already requires iOS 15.1.
 NODE_ENV=production xcodebuild \
   -workspace "$BEACON_IOS/Beacon.xcworkspace" \
   -scheme Beacon -configuration Release -sdk iphoneos \
@@ -61,6 +63,7 @@ NODE_ENV=production xcodebuild \
   -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
   "DEVELOPMENT_TEAM=$BEACON_TEAM" CODE_SIGN_STYLE=Automatic \
   'CODE_SIGN_IDENTITY=Apple Development' CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES \
+  IPHONEOS_DEPLOYMENT_TARGET=15.1 \
   ONLY_ACTIVE_ARCH=YES SKIP_BUNDLING= FORCE_BUNDLING=1 -jobs "$BEACON_JOBS" build \
   2>&1 | tee "$BEACON_ROOT/dist/ios/device-build.log"
 BEACON_APP="$BEACON_ROOT/tmp/DerivedData/Build/Products/Release-iphoneos/Beacon.app"
