@@ -57,3 +57,7 @@ This confirms installation and process startup on both physical phones, connecte
 ### Physical discovery after enabling sharing — 2026-10-18 06:55 UTC
 
 After the user enabled Nearby sharing, a fresh read-only snapshot from the connected phone confirmed `relayEnabled=true` and the default Nearby scope. Both databases passed `quick_check`. The social database contained one contact with a new announcement at 06:55:20 UTC; connection and forwarding events were recorded at 06:55:19–20 UTC. This is fresh physical Nearby discovery evidence from the updated app. There were no direct-message packets yet, so the user was asked to send a test message and reply. A later snapshot transfer lost its device socket and was incomplete; it is not used as evidence of message delivery or failure.
+
+### Third phone installation
+
+The user subsequently connected Vaibhav's iPhone 18 Pro Max. The same final build installed successfully; its embedded bundle hash matches the build above, the provisioning profile includes this device, and strict signature verification passes. Launch was denied by iOS with a security/developer-trust error (CoreDevice 10002, FBSOpenApplicationErrorDomain 3). The user was asked to trust the developer profile in Settings before retrying. Installation is confirmed, but startup on this third phone remains pending. Local evidence is in `tmp/latest-vaibhav-install.json` and `tmp/latest-vaibhav-launch.json`.
