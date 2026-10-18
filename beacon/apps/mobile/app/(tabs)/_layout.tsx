@@ -1,6 +1,6 @@
 import { useWindowDimensions } from "react-native";
 import { Tabs } from "expo-router";
-import { Users, RadioTower } from "lucide-react-native";
+import { Users, Radio } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBeacon } from "../../src/services/BeaconContext";
 import { colors as c, fonts } from "../../src/theme/tokens";
@@ -17,7 +17,11 @@ export default function TabsLayout() {
   const unreadCount = people
     .filter((person) => person.scope === activeGroupId)
     .reduce((sum, person) => sum + person.unreadCount, 0);
-  const nearbyCount = requestCount + unreadCount;
+  const badgeStyle = {
+    backgroundColor: c.text,
+    color: c.background,
+    fontFamily: fonts.medium,
+  };
   return (
     <Tabs
       screenOptions={{
@@ -30,7 +34,7 @@ export default function TabsLayout() {
           backgroundColor: c.background,
           borderTopColor: c.border,
           height: 64 + insets.bottom + Math.max(0, fontScale - 1) * 22,
-          paddingTop: 8,
+          paddingTop: 10,
           paddingBottom: Math.max(insets.bottom, 8),
         },
         tabBarLabelStyle: {
@@ -44,24 +48,22 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "I need help",
-          tabBarAccessibilityLabel: "I need help",
-          tabBarIcon: ({ color }) => <RadioTower size={24} color={color} />,
+          title: "Help",
+          tabBarAccessibilityLabel: requestCount ? `Help, ${requestCount} active requests` : "Help",
+          tabBarBadge: requestCount > 99 ? "99+" : requestCount || undefined,
+          tabBarBadgeStyle: badgeStyle,
+          tabBarIcon: ({ color }) => <Radio size={24} color={color} />,
         }}
       />
       <Tabs.Screen
         name="nearby"
         options={{
           title: "Nearby",
-          tabBarAccessibilityLabel: nearbyCount
-            ? `Nearby, ${requestCount} active requests, ${unreadCount} unread messages`
+          tabBarAccessibilityLabel: unreadCount
+            ? `Nearby, ${unreadCount} unread messages`
             : "Nearby",
-          tabBarBadge: nearbyCount > 99 ? "99+" : nearbyCount || undefined,
-          tabBarBadgeStyle: {
-            backgroundColor: c.text,
-            color: c.background,
-            fontFamily: fonts.medium,
-          },
+          tabBarBadge: unreadCount > 99 ? "99+" : unreadCount || undefined,
+          tabBarBadgeStyle: badgeStyle,
           tabBarIcon: ({ color }) => <Users size={24} color={color} />,
         }}
       />

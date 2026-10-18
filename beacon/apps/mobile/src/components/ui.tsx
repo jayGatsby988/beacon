@@ -120,13 +120,13 @@ export function TopBar({
           <ArrowLeft size={24} color={c.text} />
         </Pressable>
       ) : title ? (
-        <Text style={[styles.topTitle, { textAlign: "left", paddingLeft: 6 }]}>
+        <Text accessibilityRole="header" style={[styles.topTitle, styles.pageTitle]}>
           {title}
         </Text>
       ) : (
         <Brand />
       )}
-      {back && title && <Text style={styles.topTitle}>{title}</Text>}
+      {back && title && <Text accessibilityRole="header" style={styles.topTitle}>{title}</Text>}
       {back ? (
         <View style={{ width: 48 }} />
       ) : (
@@ -237,7 +237,7 @@ export function Button({
       {busy ? (
         <ActivityIndicator color={c.text} />
       ) : icon ? (
-        <ArrowRight size={21} color={c.text} />
+          <ArrowRight size={21} color={secondary ? c.text : c.onAction} />
       ) : null}
     </Pressable>
   );
@@ -431,18 +431,18 @@ export const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 640,
     alignSelf: "center",
-    paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingHorizontal: 24,
+    paddingTop: 8,
     paddingBottom: 20,
-    gap: 18,
+    gap: 22,
   },
   topBar: {
     width: "100%",
     maxWidth: 680,
     alignSelf: "center",
-    minHeight: 60,
-    paddingVertical: 6,
-    paddingHorizontal: 14,
+    minHeight: 72,
+    paddingVertical: 8,
+    paddingHorizontal: 18,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
@@ -460,6 +460,13 @@ export const styles = StyleSheet.create({
     color: c.text,
     flex: 1,
     textAlign: "center",
+  },
+  pageTitle: {
+    textAlign: "left",
+    paddingLeft: 6,
+    fontSize: 30,
+    lineHeight: 37,
+    letterSpacing: -0.8,
   },
   iconButton: {
     minWidth: 48,
@@ -506,7 +513,7 @@ export const styles = StyleSheet.create({
     backgroundColor: c.card,
     borderColor: c.border,
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 22,
     padding: 18,
     gap: 12,
   },
