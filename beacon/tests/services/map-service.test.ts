@@ -109,7 +109,7 @@ function fixture(
     createGate?: ReturnType<typeof deferred<void>>;
     geometry?: boolean;
     legacyStyleUrl?: string;
-    response?: () => Response;
+    response?: () => Response | Promise<Response>;
     location?: unknown;
     stored?: SavedMap;
     documentDirectory?: string;
@@ -137,6 +137,7 @@ function fixture(
     requiredResourceCount: 100,
   };
   const timers = new Set<ReturnType<typeof setTimeout>>();
+  const timerCallbacks = new Map<ReturnType<typeof setTimeout>, () => void>();
   let signal: AbortSignal | undefined;
   const clone = (state: MapState): MapState =>
     JSON.parse(JSON.stringify(state));
@@ -241,10 +242,12 @@ function fixture(
       setTimeout: (fn: () => void, delay: number) => {
         const timer = setTimeout(fn, delay);
         timers.add(timer);
+        timerCallbacks.set(timer, fn);
         return timer;
       },
       clearTimeout: (timer: ReturnType<typeof setTimeout>) => {
         timers.delete(timer);
+        timerCallbacks.delete(timer);
         clearTimeout(timer);
       },
     },
@@ -294,6 +297,10 @@ function fixture(
     requests,
     complete,
     signal: () => signal,
+    expireTimers: () => {
+      for (const callback of [...timerCallbacks.values()]) callback();
+    },
+    pendingTimers: () => timers.size,
     cleanup: () => {
       service.dispose();
       for (const timer of timers) clearTimeout(timer);
@@ -1088,3 +1095,76 @@ test("failure context retains both HTTP statuses and only allowlisted network er
     /sensitive|coordinates/,
   );
 });
+
+for (const phase of ["headers", "body"] as const) {
+  test(`geometry ${phase} timeout settles even if native networking ignores abort and keeps the previous map`, { timeout: 2000 }, async (t) => {
+    const original = fixture({ geometry: true, response: geometryResponse });
+    t.after(original.cleanup);
+    await original.service.download();
+    const headers = deferred<Response>();
+    const body = deferred<string>();
+    const active = fixture({
+      geometry: true,
+      stored: original.persisted.at(-1),
+      files: original.files,
+      response: () => {
+        if (phase === "headers") return headers.promise;
+        const response = geometryResponse();
+        response.text = () => body.promise;
+        return response;
+      },
+    });
+    t.after(active.cleanup);
+    await active.service.initialize();
+    const saving = active.service.download();
+    const failed = assert.rejects(saving, /Attempts 1: network TimeoutError; 2: network TimeoutError/);
+    await active.fetchStarted.promise;
+    await turn();
+    active.expireTimers();
+    await turn();
+    assert.equal(active.requests.length, 2, "only one fallback starts after the first deadline");
+    active.expireTimers();
+    await failed;
+    assert.ok(active.requests.every((request) => request.init.signal.aborted));
+    assert.equal(active.pendingTimers(), 0);
+    assert.equal(active.changed.at(-1)?.status, "ready");
+    assert.equal(active.persisted.at(-1)?.styleFile, original.persisted.at(-1)?.styleFile);
+    assert.equal(active.files.size, 1);
+    const count = active.changed.length;
+    headers.resolve(geometryResponse());
+    body.resolve(await geometryResponse().text());
+    await turn();
+    assert.equal(active.changed.length, count, "late network completion cannot commit a timed-out map");
+    assert.equal(active.requests.length, 2);
+  });
+
+  test(`cancel during a stuck geometry ${phase} read finishes without native cooperation and preserves the saved map`, { timeout: 2000 }, async (t) => {
+    const original = fixture({ geometry: true, response: geometryResponse });
+    t.after(original.cleanup);
+    await original.service.download();
+    const active = fixture({
+      geometry: true,
+      stored: original.persisted.at(-1),
+      files: original.files,
+      response: () => {
+        if (phase === "headers") return new Promise<Response>(() => {});
+        const response = geometryResponse();
+        response.text = () => new Promise<string>(() => {});
+        return response;
+      },
+    });
+    t.after(active.cleanup);
+    await active.service.initialize();
+    const saving = active.service.download();
+    await active.fetchStarted.promise;
+    await turn();
+    await Promise.all([saving, active.service.cancel()]);
+    assert.equal(active.requests.length, 1, "cancel never starts a fallback");
+    assert.equal(active.signal()?.aborted, true);
+    assert.equal(active.pendingTimers(), 0);
+    assert.equal(active.changed.at(-1)?.status, "ready");
+    assert.equal(active.changed.at(-1)?.error, undefined);
+    assert.equal(active.persisted.at(-1)?.styleFile, original.persisted.at(-1)?.styleFile);
+    assert.equal(active.files.size, 1);
+  });
+}

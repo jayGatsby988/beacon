@@ -647,7 +647,26 @@ export class MapService {
       if (!current()) return;
       const controller = new AbortController();
       this.controller = controller;
-      const timer = setTimeout(() => controller.abort(), 30_000);
+      let rejectStopped!: (reason: Error) => void;
+      const stopped = new Promise<never>((_resolve, reject) => {
+        rejectStopped = reject;
+      });
+      const onAbort = () => rejectStopped(new MapFetchError(
+        "Map download was stopped.",
+        false,
+        "cancelled",
+      ));
+      controller.signal.addEventListener("abort", onAbort, { once: true });
+      const timer = setTimeout(() => {
+        // Native fetch/body reads can remain pending after abort. Settle the public
+        // operation ourselves, then stop the underlying request when supported.
+        rejectStopped(new MapFetchError(
+          "The map provider took too long to respond. Your existing offline map is still available. Try again later.",
+          true,
+          "network TimeoutError",
+        ));
+        controller.abort();
+      }, 30_000);
       try {
         // Private.coffee's POST CGI currently fails while its documented GET API works.
         // Use standard form encoding for either transport, without logging the area URL.
@@ -658,7 +677,7 @@ export class MapService {
           )
           .replace(/%20/g, "+")}`;
         const useGet = attempt === 0;
-        const response = await fetch(
+        const response = await Promise.race([fetch(
           useGet
             ? `${OVERPASS_ENDPOINTS[attempt]}?${data}`
             : OVERPASS_ENDPOINTS[attempt],
@@ -675,7 +694,7 @@ export class MapService {
             signal: controller.signal,
             redirect: "error",
           },
-        );
+        ), stopped]);
         if (!current()) return;
         if (!response.ok)
           throw new MapFetchError(
@@ -688,7 +707,7 @@ export class MapService {
             "This area has too much map detail to save.",
             false,
           );
-        const text = await response.text();
+        const text = await Promise.race([response.text(), stopped]);
         if (!current()) return;
         if (text.length > MAX_BYTES)
           throw new MapFetchError(
@@ -723,6 +742,7 @@ export class MapService {
           );
       } finally {
         clearTimeout(timer);
+        controller.signal.removeEventListener("abort", onAbort);
         if (this.controller === controller) this.controller = undefined;
       }
     }

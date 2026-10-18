@@ -59,6 +59,7 @@ function renderInbox(people: PersonView[], messages: DirectMessageView[] = []) {
     if (name === "lucide-react-native") return new Proxy({}, { get: () => () => null });
     if (name === "react-native") return {
       Text: container, View: container,
+      useWindowDimensions: () => ({ width: 390, height: 844, fontScale: 1, scale: 3 }),
       Pressable: ({ children, onPress }: any) => { presses.push(onPress); return React.createElement("button", null, children); },
       StyleSheet: { create: (value: unknown) => value, hairlineWidth: 1 },
     };

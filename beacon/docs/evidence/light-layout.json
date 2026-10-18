@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-18",
+  "scope": "Reference-led light UI redesign and emergency-flow/map reliability fixes",
+  "automated": {
+    "tests": 192,
+    "passed": 191,
+    "failed": 0,
+    "skipped": 1,
+    "skipReason": "Database integration test requires configured database",
+    "typecheck": "passed",
+    "lint": "passed"
+  },
+  "changes": [
+    "Consistent 24-point margins, 20 on narrow layouts; white and deep-green visual system",
+    "Wide one-tap SOS; optional details remain collapsed; two bottom tabs",
+    "Flat nearby/inbox rows, visible header labels and larger-text wrapping",
+    "Direct current-audience chat between accepted helper and requester",
+    "Idempotent repeated accepts; conflicting accepted-helper changes rejected",
+    "Foreground-only local map refresh every 30 seconds, without enabling sharing",
+    "Map footer fits default simulator viewport; options/recenter no longer overlap",
+    "Bounded map header/body downloads and cancellation; previous maps preserved"
+  ],
+  "nativePackaging": {
+    "method": "Current production JS/assets repackaged into existing compatible native binaries; signatures verified",
+    "fullNativeRebuild": "Blocked by local disk exhaustion; no native source changed in this task",
+    "deviceInstallCount": 2,
+    "deviceLaunchCount": 2
+  },
+  "simulator": {
+    "model": "iPhone 17 Pro",
+    "os": "iOS 26.0.1",
+    "home": "observed",
+    "request": "Real local SOS labeled SIMULATOR QA - no emergency, then canceled through UI",
+    "nearby": "Honest Bluetooth-unavailable empty state; no fake peers",
+    "map": "Real bundled geometry and fresh simulated You pin, sharing off",
+    "largeText": "Home observed at extra-extra-extra-large, then restored to large",
+    "smallPhone": "Additional simulator installation blocked by disk capacity; not verified",
+    "mapRefreshBeyondExpiry": {
+      "observedDurationSeconds": 121,
+      "reportedAgeSeconds": 10,
+      "sharingEnabled": false,
+      "result": "Fresh You pin remained after the original 120-second lifetime"
+    },
+    "mapSaveCancellation": "Save my area -> Cancel save returned to Save my area with bundled map retained",
+    "onlineMap": "Explicit View online rendered streets/buildings and labels"
+  },
+  "mapProvider": {
+    "nativeAttempt": "HTTP 500 then HTTP 502; bundled map remained visible",
+    "newAreaDownload": "Unresolved provider failure; no successful native download claimed",
+    "timeoutAndCancel": "29 service tests passed, including stuck headers/body cases"
+  },
+  "audio": {
+    "userReport": "User said they had already tried the call and it works",
+    "nativeLogs": "Older capture/TX/RX/playback activity found on one phone; no new entries after final installation",
+    "audibleSpeech": "User-confirmed, not independently heard by assistant"
+  },
+  "limits": [
+    "No new paired physical SOS/message/location acceptance recorded in this pass",
+    "No worldwide offline map coverage",
+    "Full native rebuild and smallest-device check blocked by storage"
+  ]
+}

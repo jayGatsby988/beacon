@@ -1,6 +1,6 @@
 import { router } from "expo-router";
 import { ChevronRight, MessageCircle, Radio } from "lucide-react-native";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Screen } from "../src/components/ui";
 import { useBeacon } from "../src/services/BeaconContext";
 import { colors as c, fonts } from "../src/theme/tokens";
@@ -8,6 +8,8 @@ import { deliveryLabel, inboxRows, inboxTime, initials } from "../src/ui/inbox";
 import type { DirectMessageView, PersonView } from "../src/ui/types";
 
 function PersonRow({ person, latest, separated = false }: { person: PersonView; latest?: DirectMessageView; separated?: boolean }) {
+  const { fontScale, width } = useWindowDimensions();
+  const stacked = fontScale >= 1.5 || width < 350;
   const unread = person.unreadCount;
   const preview = latest ? `${latest.mine ? "You: " : ""}${latest.text}` : "Connected nearby";
   return (
@@ -18,16 +20,16 @@ function PersonRow({ person, latest, separated = false }: { person: PersonView; 
       style={({ pressed }) => [s.row, separated && s.separator, pressed && { backgroundColor: c.raised }]}
     >
       <View style={s.avatar} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-        <Text style={s.initials}>{initials(person.name)}</Text>
+        <Text maxFontSizeMultiplier={1.4} style={s.initials}>{initials(person.name)}</Text>
         {person.connected && <View style={s.connectedDot} />}
       </View>
       <View style={s.rowBody}>
-        <View style={s.rowTop}>
-          <Text numberOfLines={1} style={s.name}>{person.name}</Text>
+        <View style={[s.rowTop, stacked && s.stackedMeta]}>
+          <Text style={s.name}>{person.name}</Text>
           {latest && <Text style={s.time}>{inboxTime(latest.createdAt)}</Text>}
         </View>
         <View style={s.rowTop}>
-          <Text numberOfLines={2} style={[s.preview, unread > 0 && s.unreadPreview]}>{preview}</Text>
+          <Text numberOfLines={stacked ? undefined : 2} style={[s.preview, unread > 0 && s.unreadPreview]}>{preview}</Text>
           {unread > 0 ? <View style={s.badge}><Text style={s.badgeText}>{unread > 99 ? "99+" : unread}</Text></View> : <ChevronRight size={16} color={c.muted} />}
         </View>
         {latest?.mine && <Text style={s.delivery}>{deliveryLabel(latest.status)}</Text>}
@@ -58,7 +60,7 @@ export default function Messages() {
           <View style={s.emptyIcon}><MessageCircle size={30} color={c.secondary} /></View>
           <Text style={s.emptyTitle}>{b.loading ? "Loading messages…" : "Find someone nearby"}</Text>
           {!b.loading && <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: "/(tabs)/nearby", params: { view: "people" } })} style={({ pressed }) => [s.nearby, pressed && { opacity: 0.7 }]}>
-            <Radio size={19} color={c.text} /><Text style={s.nearbyText}>Find people</Text><ChevronRight size={18} color={c.secondary} />
+            <Radio size={19} color={c.onAction} /><Text style={s.nearbyText}>Find people</Text><ChevronRight size={18} color={c.onAction} />
           </Pressable>}
         </View>
       )}
@@ -67,26 +69,27 @@ export default function Messages() {
 }
 
 const s = StyleSheet.create({
-  context: { fontFamily: fonts.body, color: c.muted, fontSize: 13, lineHeight: 20 },
-  sectionTitle: { fontFamily: fonts.medium, color: c.secondary, fontSize: 14, lineHeight: 21 },
-  list: { borderRadius: 16, overflow: "hidden" },
-  row: { flexDirection: "row", gap: 14, paddingVertical: 17, paddingHorizontal: 4, alignItems: "center", minHeight: 84 },
+  context: { fontFamily: fonts.body, color: c.secondary, fontSize: 14, lineHeight: 21 },
+  sectionTitle: { fontFamily: fonts.medium, color: c.text, fontSize: 16, lineHeight: 23 },
+  list: { width: "100%" },
+  row: { flexDirection: "row", gap: 16, paddingVertical: 20, alignItems: "flex-start", minHeight: 88 },
   separator: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
-  avatar: { width: 44, height: 44, borderRadius: 14, backgroundColor: c.raised, alignItems: "center", justifyContent: "center" },
-  initials: { fontFamily: fonts.medium, fontSize: 15, color: c.secondary },
-  connectedDot: { position: "absolute", bottom: -1, right: -1, width: 10, height: 10, borderRadius: 5, backgroundColor: c.secondary, borderWidth: 2, borderColor: c.background },
-  rowBody: { flex: 1, gap: 4 },
-  rowTop: { flexDirection: "row", alignItems: "center", gap: 8 },
-  name: { flex: 1, fontFamily: fonts.medium, fontSize: 15, lineHeight: 21, color: c.text },
-  time: { fontFamily: fonts.body, fontSize: 11, color: c.muted },
-  preview: { flex: 1, fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: c.muted },
-  unreadPreview: { color: c.secondary },
-  delivery: { fontFamily: fonts.body, color: c.muted, fontSize: 11, lineHeight: 16 },
-  badge: { minWidth: 22, minHeight: 22, borderRadius: 11, paddingHorizontal: 6, backgroundColor: c.raised, alignItems: "center", justifyContent: "center" },
-  badgeText: { fontFamily: fonts.medium, fontSize: 11, color: c.text },
-  empty: { paddingHorizontal: 20, paddingVertical: 48, alignItems: "center", gap: 20 },
-  emptyIcon: { width: 72, height: 72, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: c.raised },
-  emptyTitle: { fontFamily: fonts.medium, color: c.text, fontSize: 21, lineHeight: 28, textAlign: "center" },
-  nearby: { minHeight: 52, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 16, backgroundColor: c.raised, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
-  nearbyText: { fontFamily: fonts.medium, color: c.text, fontSize: 15, flexShrink: 1 },
+  avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: c.raised, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  initials: { fontFamily: fonts.medium, fontSize: 15, color: c.text },
+  connectedDot: { position: "absolute", bottom: 0, right: 0, width: 10, height: 10, borderRadius: 5, backgroundColor: c.connected, borderWidth: 2, borderColor: c.background },
+  rowBody: { flex: 1, minWidth: 0, gap: 5 },
+  rowTop: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  stackedMeta: { flexDirection: "column", gap: 3 },
+  name: { flexGrow: 1, flexShrink: 1, fontFamily: fonts.medium, fontSize: 17, lineHeight: 24, color: c.text },
+  time: { flexShrink: 0, fontFamily: fonts.body, fontSize: 12, lineHeight: 19, color: c.muted },
+  preview: { flex: 1, fontFamily: fonts.body, fontSize: 15, lineHeight: 22, color: c.secondary },
+  unreadPreview: { color: c.text },
+  delivery: { fontFamily: fonts.body, color: c.muted, fontSize: 12, lineHeight: 18 },
+  badge: { minWidth: 24, minHeight: 24, borderRadius: 12, paddingHorizontal: 7, backgroundColor: c.text, alignItems: "center", justifyContent: "center" },
+  badgeText: { fontFamily: fonts.medium, fontSize: 12, color: c.onAction },
+  empty: { paddingVertical: 56, alignItems: "center", gap: 24 },
+  emptyIcon: { width: 56, height: 56, alignItems: "center", justifyContent: "center" },
+  emptyTitle: { fontFamily: fonts.medium, color: c.text, fontSize: 24, lineHeight: 31, textAlign: "center" },
+  nearby: { minHeight: 52, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 12, backgroundColor: c.text, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12 },
+  nearbyText: { fontFamily: fonts.medium, color: c.onAction, fontSize: 16, lineHeight: 23, flexShrink: 1 },
 });

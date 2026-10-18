@@ -401,7 +401,7 @@ export default function NearbyMap({
           )}
         </View>
         )}
-        <Pressable
+        {!showMapOptions && <Pressable
           accessibilityRole="button"
           accessibilityLabel="Find my location and show nearby people"
           accessibilityState={{ busy: locating, disabled: !ready || locating }}
@@ -414,7 +414,7 @@ export default function NearbyMap({
           ) : (
             <LocateFixed color={c.text} size={22} />
           )}
-        </Pressable>
+        </Pressable>}
         {bundled && (
           <Pressable
             accessibilityRole="link"
@@ -567,7 +567,7 @@ const s = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: "#82B9AA",
+    backgroundColor: "#267A58",
     borderWidth: 3,
     borderColor: c.background,
     alignItems: "center",
@@ -589,7 +589,7 @@ const s = StyleSheet.create({
     width: 9,
     height: 9,
     borderRadius: 5,
-    backgroundColor: "#79B9F1",
+    backgroundColor: "#2374A4",
   },
   youText: { fontFamily: fonts.medium, fontSize: 11, color: c.text },
   mapFooter: {
@@ -603,9 +603,9 @@ const s = StyleSheet.create({
   mapAction: { minHeight: 48, justifyContent: "center", paddingHorizontal: 14 },
   legend: { flexDirection: "row", flexWrap: "wrap", gap: 16, marginBottom: 4 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
-  legendYou: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#79B9F1" },
+  legendYou: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#2374A4" },
   legendSos: { width: 7, height: 7, borderRadius: 2, backgroundColor: c.redLabel },
-  legendPerson: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#82B9AA" },
+  legendPerson: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#267A58" },
   sosMarker: { minWidth: 46, height: 42, borderRadius: 12, backgroundColor: c.red, borderWidth: 2, borderColor: c.background, alignItems: "center", justifyContent: "center", paddingHorizontal: 7 },
   selectedSosMarker: { borderColor: c.text, borderWidth: 3 },
   sosText: { fontFamily: fonts.medium, fontSize: 12, color: c.onAction },
