@@ -1,0 +1,18 @@
+export const SCHEMA = `
+PRAGMA journal_mode = WAL;
+PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, request_id TEXT NOT NULL, origin TEXT NOT NULL, type TEXT NOT NULL, envelope TEXT NOT NULL, hops INTEGER NOT NULL, received_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS messages_expiry ON messages(expires_at);
+CREATE INDEX IF NOT EXISTS messages_request ON messages(request_id);
+CREATE TABLE IF NOT EXISTS dedup (message_id TEXT PRIMARY KEY, received_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS forwarding (peer_id TEXT NOT NULL, message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE, attempts INTEGER NOT NULL DEFAULT 1, last_at INTEGER NOT NULL, PRIMARY KEY(peer_id,message_id));
+CREATE TABLE IF NOT EXISTS request_state (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, status TEXT NOT NULL, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS offers (id TEXT PRIMARY KEY, request_id TEXT NOT NULL, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS assignments (request_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, kind TEXT NOT NULL, request_id TEXT, recorded_at INTEGER NOT NULL, data TEXT NOT NULL, uploaded INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS outbox (event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE, attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL DEFAULT 0, error TEXT);
+CREATE INDEX IF NOT EXISTS outbox_ready ON outbox(next_attempt);
+CREATE TABLE IF NOT EXISTS offline_maps (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+PRAGMA user_version = 1;
+`;
