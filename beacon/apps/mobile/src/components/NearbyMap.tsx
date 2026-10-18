@@ -8,10 +8,10 @@ import {
   View,
 } from "react-native";
 import MapLibre, { type CameraRef } from "@maplibre/maplibre-react-native";
-import { LocateFixed, MapPin, MessageCircle, X } from "lucide-react-native";
+import { Layers, LocateFixed, MapPin, MessageCircle, X } from "lucide-react-native";
 import { router } from "expo-router";
 import { LOCATION_LIMITS } from "@beacon/protocol";
-import type { LocationReport, MapState } from "../ui/types";
+import type { LocationReport, MapState, RequestView } from "../ui/types";
 import { colors as c, fonts } from "../theme/tokens";
 import { CAMPUS_BOUNDS, campusStyle } from "./campusMapStyle";
 
@@ -88,6 +88,7 @@ export default function NearbyMap({
   ownLocation,
   focusRevision,
   pins,
+  requests = [],
   internet,
   map,
   onLocate,
@@ -99,6 +100,7 @@ export default function NearbyMap({
   ownLocation: LocationReport;
   focusRevision: number;
   pins: NearbyPin[];
+  requests?: RequestView[];
   connectedCount: number;
   internet: boolean | null;
   map: MapState;
@@ -119,6 +121,8 @@ export default function NearbyMap({
   const [ready, setReady] = useState(false);
   const [viewCenter, setViewCenter] = useState<number[]>(CAMPUS_CENTER);
   const [selectedId, setSelectedId] = useState<string>();
+  const [selectedRequestId, setSelectedRequestId] = useState<string>();
+  const [showMapOptions, setShowMapOptions] = useState(false);
   const centered = useRef(false);
   const fittedPeers = useRef(false);
   const fittedFocusRevision = useRef(-1);
@@ -148,9 +152,20 @@ export default function NearbyMap({
       : undefined;
   const validPins = pins.filter((pin) => freshLocation(pin.location, now));
   const selected = validPins.find((pin) => pin.nodeId === selectedId);
+  // SOS coordinates are the location attached to a request, never a live peer fix.
+  const requestPins = requests.filter((request) =>
+    (request.status === "active" || request.status === "accepted") &&
+    request.location.source !== "unavailable" &&
+    Number.isFinite(request.location.latitude) &&
+    Number.isFinite(request.location.longitude) &&
+    Math.abs(request.location.latitude!) <= 90 &&
+    Math.abs(request.location.longitude!) <= 180,
+  );
+  const selectedRequest = requestPins.find((request) => request.id === selectedRequestId);
   const coordinates = [
     ...(own ? [[own.longitude, own.latitude]] : []),
     ...validPins.map((pin) => [pin.location.longitude, pin.location.latitude]),
+    ...requestPins.map((request) => [request.location.longitude!, request.location.latitude!]),
   ];
   const outsideCoverage =
     !inCoverage(viewCenter) ||
@@ -277,7 +292,7 @@ export default function NearbyMap({
                 title={pin.name}
                 coordinate={[pin.location.longitude, pin.location.latitude]}
                 selected={selectedId === pin.nodeId}
-                onSelected={() => setSelectedId(pin.nodeId)}
+                onSelected={() => { setSelectedId(pin.nodeId); setSelectedRequestId(undefined); }}
               >
                 <View
                   collapsable={false}
@@ -292,6 +307,20 @@ export default function NearbyMap({
                 </View>
               </MapLibre.PointAnnotation>
             ))}
+            {requestPins.map((request) => (
+              <MapLibre.PointAnnotation
+                key={request.id}
+                id={`request-${request.id}`}
+                title={`${request.name} · SOS reported location`}
+                coordinate={[request.location.longitude!, request.location.latitude!]}
+                selected={selectedRequestId === request.id}
+                onSelected={() => { setSelectedRequestId(request.id); setSelectedId(undefined); }}
+              >
+                <View collapsable={false} style={[s.sosMarker, selectedRequestId === request.id && s.selectedSosMarker]}>
+                  <Text style={s.sosText}>SOS</Text>
+                </View>
+              </MapLibre.PointAnnotation>
+            ))}
           </MapLibre.MapView>
         )}
         {!online && outsideCoverage && (
@@ -301,46 +330,14 @@ export default function NearbyMap({
         )}
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Find my location and show nearby people"
-          accessibilityState={{ busy: locating, disabled: !ready || locating }}
-          disabled={!ready || locating}
-          onPress={() => void recenter()}
-          style={({ pressed }) => [s.recenter, pressed && s.pressed]}
+          accessibilityLabel="Map options"
+          accessibilityState={{ expanded: showMapOptions }}
+          onPress={() => setShowMapOptions((shown) => !shown)}
+          style={({ pressed }) => [s.mapOptions, pressed && s.pressed]}
         >
-          {locating ? (
-            <ActivityIndicator color={c.text} />
-          ) : (
-            <LocateFixed color={c.text} size={22} />
-          )}
+          <Layers size={21} color={c.text} />
         </Pressable>
-        {bundled && (
-          <Pressable
-            accessibilityRole="link"
-            accessibilityLabel="OpenStreetMap attribution and license"
-            onPress={() =>
-              void Linking.openURL("https://www.openstreetmap.org/copyright")
-            }
-            style={s.attribution}
-          >
-            <Text style={s.attributionText}>
-              © OpenStreetMap contributors · ODbL
-            </Text>
-          </Pressable>
-        )}
-      </View>
-      <View style={s.mapFooter}>
-        <Text style={s.caption}>
-          {online
-            ? "Online map"
-            : outsideCoverage
-              ? saved
-                ? "Outside saved area"
-                : "Outside UW area"
-              : saved
-                ? "Offline · saved area"
-                : "Offline · UW area"}
-        </Text>
-        {own && <Text style={s.caption}>You · {locationLabel(own, now)}</Text>}
+        {showMapOptions && (
         <View style={s.mapActions}>
           <Pressable
             accessibilityRole="button"
@@ -403,6 +400,54 @@ export default function NearbyMap({
             </Pressable>
           )}
         </View>
+        )}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Find my location and show nearby people"
+          accessibilityState={{ busy: locating, disabled: !ready || locating }}
+          disabled={!ready || locating}
+          onPress={() => void recenter()}
+          style={({ pressed }) => [s.recenter, pressed && s.pressed]}
+        >
+          {locating ? (
+            <ActivityIndicator color={c.text} />
+          ) : (
+            <LocateFixed color={c.text} size={22} />
+          )}
+        </Pressable>
+        {bundled && (
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel="OpenStreetMap attribution and license"
+            onPress={() =>
+              void Linking.openURL("https://www.openstreetmap.org/copyright")
+            }
+            style={s.attribution}
+          >
+            <Text style={s.attributionText}>
+              © OpenStreetMap contributors · ODbL
+            </Text>
+          </Pressable>
+        )}
+      </View>
+      <View style={s.mapFooter}>
+        <View style={s.legend}>
+          <View style={s.legendItem}><View style={s.legendYou} /><Text style={s.caption}>You</Text></View>
+          <View style={s.legendItem}><View style={s.legendSos} /><Text style={s.caption}>SOS · {requestPins.length}</Text></View>
+          <View style={s.legendItem}><View style={s.legendPerson} /><Text style={s.caption}>Sharing · {validPins.length}</Text></View>
+        </View>
+        <Text style={s.caption}>
+          {online
+            ? "Online map"
+            : outsideCoverage
+              ? saved
+                ? "Outside saved area"
+                : "Outside UW area"
+              : saved
+                ? "Offline · saved area"
+                : "Offline · UW area"}
+        </Text>
+        {own && <Text style={s.caption}>You · {locationLabel(own, now)}</Text>}
         {(actionError || map.error) && (
           <Text accessibilityLiveRegion="polite" style={s.caption}>
             {actionError || map.error}
@@ -414,6 +459,29 @@ export default function NearbyMap({
           </Text>
         )}
       </View>
+      {selectedRequest && (
+        <View style={s.selection}>
+          <View style={s.selectionTop}>
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text style={s.requestEyebrow}>ACTIVE SOS · REPORTED LOCATION</Text>
+              <Text style={s.name}>{selectedRequest.name}</Text>
+              <Text style={s.caption}>
+                {Number.isFinite(selectedRequest.location.capturedAt)
+                  ? `Location captured ${locationLabel({ ...selectedRequest.location, latitude: selectedRequest.location.latitude!, longitude: selectedRequest.location.longitude!, capturedAt: selectedRequest.location.capturedAt! }, now)}`
+                  : "Location capture time unavailable"}
+              </Text>
+              <Text style={s.caption}>{selectedRequest.location.latitude!.toFixed(5)}, {selectedRequest.location.longitude!.toFixed(5)}</Text>
+              {selectedRequest.note ? <Text numberOfLines={2} style={s.caption}>{selectedRequest.note}</Text> : null}
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="Close request preview" onPress={() => setSelectedRequestId(undefined)} style={s.close}>
+              <X color={c.secondary} size={20} />
+            </Pressable>
+          </View>
+          <Pressable accessibilityRole="button" onPress={() => router.push(`/request/${selectedRequest.id}`)} style={({ pressed }) => [s.message, pressed && s.pressed]}>
+            <Text style={s.messageText}>Open request</Text>
+          </Pressable>
+        </View>
+      )}
       {selected && (
         <View style={s.selection}>
           <View style={s.selectionTop}>
@@ -448,7 +516,7 @@ export default function NearbyMap({
 }
 const s = StyleSheet.create({
   frame: {
-    borderRadius: 20,
+    borderRadius: 16,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: c.border,
@@ -466,11 +534,11 @@ const s = StyleSheet.create({
     position: "absolute",
     top: 16,
     left: 16,
-    maxWidth: "76%",
+    maxWidth: "70%",
     backgroundColor: c.background,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRadius: 20,
+    borderRadius: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -488,7 +556,7 @@ const s = StyleSheet.create({
     right: 14,
     width: 48,
     height: 48,
-    borderRadius: 24,
+    borderRadius: 16,
     backgroundColor: c.background,
     alignItems: "center",
     justifyContent: "center",
@@ -499,7 +567,7 @@ const s = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: c.text,
+    backgroundColor: "#82B9AA",
     borderWidth: 3,
     borderColor: c.background,
     alignItems: "center",
@@ -521,7 +589,7 @@ const s = StyleSheet.create({
     width: 9,
     height: 9,
     borderRadius: 5,
-    backgroundColor: c.secondary,
+    backgroundColor: "#79B9F1",
   },
   youText: { fontFamily: fonts.medium, fontSize: 11, color: c.text },
   mapFooter: {
@@ -530,8 +598,18 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: c.border,
   },
-  mapActions: { flexDirection: "row", flexWrap: "wrap", gap: 16 },
-  mapAction: { minHeight: 48, justifyContent: "center", paddingHorizontal: 4 },
+  mapOptions: { position: "absolute", top: 14, right: 14, width: 48, height: 48, borderRadius: 16, backgroundColor: c.background, borderWidth: 1, borderColor: c.border, alignItems: "center", justifyContent: "center" },
+  mapActions: { position: "absolute", top: 70, right: 14, borderRadius: 16, backgroundColor: c.background, borderWidth: 1, borderColor: c.border, padding: 6 },
+  mapAction: { minHeight: 48, justifyContent: "center", paddingHorizontal: 14 },
+  legend: { flexDirection: "row", flexWrap: "wrap", gap: 16, marginBottom: 4 },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  legendYou: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#79B9F1" },
+  legendSos: { width: 7, height: 7, borderRadius: 2, backgroundColor: c.redLabel },
+  legendPerson: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#82B9AA" },
+  sosMarker: { minWidth: 46, height: 42, borderRadius: 12, backgroundColor: c.red, borderWidth: 2, borderColor: c.background, alignItems: "center", justifyContent: "center", paddingHorizontal: 7 },
+  selectedSosMarker: { borderColor: c.text, borderWidth: 3 },
+  sosText: { fontFamily: fonts.medium, fontSize: 12, color: c.onAction },
+  requestEyebrow: { fontFamily: fonts.medium, fontSize: 11, lineHeight: 16, color: c.redLabel },
   actionText: { fontFamily: fonts.medium, fontSize: 13, color: c.text },
   caption: {
     fontFamily: fonts.body,

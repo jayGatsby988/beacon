@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -14,7 +14,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
-import { ArrowUp, Phone } from "lucide-react-native";
+import { ArrowUp, ChevronDown, ChevronUp, MessageCircle, Phone } from "lucide-react-native";
 import { useBeacon } from "../../src/services/BeaconContext";
 import {
   ErrorNotice,
@@ -25,20 +25,27 @@ import {
   useAction,
 } from "../../src/components/ui";
 import { colors as c, fonts } from "../../src/theme/tokens";
-import type { DirectMessageView } from "../../src/ui/types";
+import { deliveryLabel, initials } from "../../src/ui/inbox";
+import type { BeaconState, DirectMessageView } from "../../src/ui/types";
 
 export default function Chat() {
   const b = useBeacon();
   const params = useLocalSearchParams<{ id: string | string[] }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  // A scope/peer change discards UI state and isolates pending send/read results.
+  return <Conversation key={JSON.stringify([b.activeGroupId, id])} b={b} id={id} />;
+}
+
+function Conversation({ b, id }: { b: BeaconState; id: string | undefined }) {
   const person = b.people.find(
     (p) => p.nodeId === id && p.scope === b.activeGroupId,
   );
-  const messages = b.messages
+  const messages = (person ? b.messages : [])
     .filter((m) => m.peerId === id)
     .sort((a, z) => a.createdAt - z.createdAt || a.id.localeCompare(z.id));
   const [draft, setDraft] = useState("");
   const [readError, setReadError] = useState<string>();
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const action = useAction();
   const callAction = useAction();
   const list = useRef<FlatList<DirectMessageView>>(null);
@@ -46,10 +53,6 @@ export default function Chat() {
   const unread = person?.unreadCount ?? 0;
   const markRead = b.markChatRead;
   const currentScopePerson = !!person;
-  useEffect(() => {
-    setDraft("");
-    setReadError(undefined);
-  }, [id, b.activeGroupId]);
   useFocusEffect(
     useCallback(() => {
       if (!id || !currentScopePerson) return;
@@ -98,33 +101,51 @@ export default function Chat() {
       >
         <View style={s.header}>
           <View style={s.personRow}>
+            <View style={s.avatar} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+              <Text style={s.initials}>{person ? initials(name) : "?"}</Text>
+            </View>
             <View style={s.personName}>
-              <Text style={shared.caption}>
-                {person
-                  ? person.connected ? "Connected nearby" : `Last seen ${age(person.lastSeenAt)}`
-                  : "Not in your current group"}
+              <Text style={s.connection}>
+                {person ? person.connected ? "Connected nearby" : `Last seen ${age(person.lastSeenAt)}` : "Not in your current group"}
+              </Text>
+              <Text style={s.callHint}>
+                {person ? person.connected ? "Direct Bluetooth messages" : "Messages queue until you reconnect." : "Return to Messages to find a conversation."}
               </Text>
             </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Call ${name}`}
-              accessibilityHint={callHint}
-              accessibilityState={{ disabled: !canCall, busy: callAction.busy }}
-              disabled={!canCall}
-              onPress={() => {
-                if (id && canCall) void callAction.run(() => b.startCall(id));
-              }}
-              style={({ pressed }) => [
-                s.call,
-                !canCall && { opacity: 0.4 },
-                pressed && { opacity: 0.7 },
-              ]}
-            >
-              <Phone color={c.text} size={18} /><Text style={s.callLabel}>Call</Text>
-            </Pressable>
           </View>
-          {!person?.connected && person && <Text style={s.callHint}>Messages wait here until you reconnect.</Text>}
-          <Text style={s.callHint}>{b.callSupported ? (b.call ? callHint : "Bluetooth calls · experimental") : callHint}</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Conversation options"
+            accessibilityState={{ expanded: detailsOpen }}
+            onPress={() => setDetailsOpen((open) => !open)}
+            style={({ pressed }) => [s.detailsToggle, pressed && { opacity: 0.7 }]}
+          >
+            <Text style={s.detailsLabel}>Conversation options</Text>
+            {detailsOpen ? <ChevronUp size={16} color={c.muted} /> : <ChevronDown size={16} color={c.muted} />}
+          </Pressable>
+          {detailsOpen && <View style={s.details}>
+            <Text style={s.callHint}>Queued messages are saved on this device. Received means the recipient’s device acknowledged the message. Expired messages are no longer sent.</Text>
+            <View style={s.personRow}>
+              <View style={s.personName}>
+                <Text style={s.connection}>Experimental voice call</Text>
+                <Text style={s.callHint}>{b.callSupported ? "iPhone only · Audio may not work reliably." : callHint}</Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Call ${name}`}
+                accessibilityHint={callHint}
+                accessibilityState={{ disabled: !canCall, busy: callAction.busy }}
+                disabled={!canCall}
+                onPress={() => {
+                  if (id && canCall) void callAction.run(() => b.startCall(id));
+                }}
+                style={({ pressed }) => [s.call, !canCall && { opacity: 0.4 }, pressed && { opacity: 0.7 }]}
+              >
+                <Phone color={c.secondary} size={18} /><Text style={s.callLabel}>Call</Text>
+              </Pressable>
+            </View>
+            {b.callSupported && (!person?.connected || b.call) && <Text style={s.callHint}>{callHint}</Text>}
+          </View>}
         </View>
         <FlatList
           ref={list}
@@ -139,20 +160,17 @@ export default function Chat() {
           }
           onLayout={() => list.current?.scrollToEnd({ animated: false })}
           ListEmptyComponent={
-            <Text
-              style={[
-                shared.caption,
-                { textAlign: "center", paddingVertical: 30 },
-              ]}
-            >
-              Start a conversation.
-            </Text>
+            <View style={s.empty}>
+              <View style={s.emptyIcon}><MessageCircle size={25} color={c.muted} /></View>
+              <Text style={s.emptyTitle}>{person ? "Start a conversation" : "Conversation unavailable"}</Text>
+              <Text style={s.emptyDetail}>{person ? "Keep in touch with a short message. Text sends directly when you’re connected nearby." : "This person is not in your current group."}</Text>
+            </View>
           }
           renderItem={({ item }) => (
             <View
               style={[s.message, item.mine ? s.mine : s.theirs]}
               accessible
-              accessibilityLabel={`${item.mine ? "You" : name}: ${item.text}. ${formatTime(item.createdAt)}${item.mine ? `. ${item.status === "received" ? "Received" : item.status === "expired" ? "Expired" : "Queued"}` : ""}`}
+              accessibilityLabel={`${item.mine ? "You" : name}: ${item.text}. ${formatTime(item.createdAt)}${item.mine ? `. ${deliveryLabel(item.status)}` : ""}`}
             >
               <Text selectable style={s.messageText}>
                 {item.text}
@@ -160,7 +178,7 @@ export default function Chat() {
               <Text style={s.messageMeta}>
                 {formatTime(item.createdAt)}
                 {item.mine
-                  ? ` · ${item.status === "received" ? "Received" : item.status === "expired" ? "Expired" : "Queued"}`
+                  ? ` · ${deliveryLabel(item.status)}`
                   : ""}
               </Text>
             </View>
@@ -178,7 +196,7 @@ export default function Chat() {
           <View style={s.composer}>
             <TextInput
               accessibilityLabel="Message"
-              placeholder="Message"
+              placeholder={person ? `Message ${name}` : "Conversation unavailable"}
               placeholderTextColor={c.muted}
               value={draft}
               onChangeText={setDraft}
@@ -232,14 +250,24 @@ const s = StyleSheet.create({
     alignSelf: "center",
   },
   personRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  personName: { flex: 1 },
+  personName: { flex: 1, gap: 3 },
+  avatar: { width: 44, height: 44, borderRadius: 14, backgroundColor: c.raised, alignItems: "center", justifyContent: "center" },
+  initials: { fontFamily: fonts.medium, fontSize: 15, color: c.secondary },
+  connection: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 19, color: c.secondary },
+  detailsToggle: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6 },
+  detailsLabel: { fontFamily: fonts.body, fontSize: 12, lineHeight: 18, color: c.muted },
+  details: { gap: 16, backgroundColor: c.card, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: c.border },
+  empty: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 36 },
+  emptyIcon: { width: 56, height: 56, backgroundColor: c.card, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  emptyTitle: { fontFamily: fonts.medium, color: c.text, fontSize: 17, textAlign: "center" },
+  emptyDetail: { fontFamily: fonts.body, color: c.muted, fontSize: 14, lineHeight: 21, textAlign: "center", maxWidth: 300 },
   call: {
     minWidth: 88,
     minHeight: 44,
     flexDirection: "row",
     gap: 8,
     paddingHorizontal: 14,
-    borderRadius: 24,
+    borderRadius: 12,
     backgroundColor: c.card,
     borderWidth: 1,
     borderColor: c.border,
@@ -266,7 +294,7 @@ const s = StyleSheet.create({
     maxWidth: "88%",
     paddingHorizontal: 15,
     paddingVertical: 12,
-    borderRadius: 18,
+    borderRadius: 16,
     gap: 8,
   },
   mine: {
@@ -297,7 +325,7 @@ const s = StyleSheet.create({
   composerArea: {
     borderTopWidth: 1,
     borderTopColor: c.border,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingTop: 12,
     gap: 8,
     width: "100%",
@@ -307,7 +335,7 @@ const s = StyleSheet.create({
   composer: { flexDirection: "row", alignItems: "flex-end", gap: 10 },
   input: {
     flex: 1,
-    minHeight: 50,
+    minHeight: 52,
     maxHeight: 140,
     paddingHorizontal: 15,
     paddingTop: 14,
@@ -316,16 +344,18 @@ const s = StyleSheet.create({
     backgroundColor: c.card,
     borderWidth: 1,
     borderColor: c.border,
-    borderRadius: 18,
+    borderRadius: 16,
     fontFamily: fonts.body,
     fontSize: 16,
     lineHeight: 22,
   },
   send: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: c.red,
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: c.raised,
+    borderWidth: 1,
+    borderColor: c.border,
     alignItems: "center",
     justifyContent: "center",
   },

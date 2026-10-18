@@ -29,7 +29,8 @@ function repository() {
   return { repo: new SocialRepository(db), close: () => sql.close() };
 }
 
-function screen(getState: () => any, now: () => number) {
+function screen(getState: () => any, now: () => number, route?: { view?: string }) {
+  let firstEffect: (() => void) | undefined;
   let mode: "people" | "map" = "people";
   const container = ({ children }: any) => React.createElement("div", null, children);
   const text = ({ children }: any) => React.createElement("span", null, children);
@@ -50,11 +51,20 @@ function screen(getState: () => any, now: () => number) {
     if (name === "react") return {
       ...React,
       // Select each real view without simulating native button dispatch.
-      useState: (initial: any) => React.useState(initial === "people" ? mode : initial),
+      useState: (initial: any) => route && initial === "people"
+        ? [mode, (value: "people" | "map") => { mode = value; }]
+        : React.useState(initial === "people" ? mode : initial),
+      useEffect: (effect: () => void, dependencies: unknown[]) => {
+        if (route) firstEffect ??= effect;
+        else React.useEffect(effect, dependencies);
+      },
     };
     if (name === "react/jsx-runtime") return jsx;
     if (name === "react-native") return native;
-    if (name === "expo-router") return { router: { push: () => {} }, useFocusEffect: () => {} };
+    if (name === "expo-router") return {
+      router: { push: () => {}, setParams: (params: { view?: string }) => { if (route) Object.assign(route, params); } },
+      useFocusEffect: () => {}, useLocalSearchParams: () => route ?? {},
+    };
     if (name === "lucide-react-native") return new Proxy({}, { get: () => () => null });
     if (name === "@maplibre/maplibre-react-native") return { __esModule: true, default: mapNative };
     if (name === "@beacon/protocol") return protocol;
@@ -62,6 +72,7 @@ function screen(getState: () => any, now: () => number) {
     if (name === "./campusMapStyle") return { CAMPUS_BOUNDS, campusStyle };
     if (name.endsWith("/services/BeaconContext")) return { useBeacon: getState };
     if (name.endsWith("/components/NearbyMap")) return mapModule;
+    if (name.endsWith("/components/AudiencePicker")) return { __esModule: true, default: () => null };
     if (name.endsWith("/components/RequestCard")) return { RequestCard: () => null };
     if (name.endsWith("/components/ui")) return {
       Screen: container, Heading: text, ErrorNotice: () => null, styles: {}, age: () => "recently",
@@ -83,6 +94,11 @@ function screen(getState: () => any, now: () => number) {
   const Nearby = load("../../apps/mobile/app/(tabs)/nearby.tsx").default;
   return (selected: "people" | "map" = "people") => {
     mode = selected;
+    firstEffect = undefined;
+    const html = renderToStaticMarkup(React.createElement(Nearby));
+    if (!route) return html;
+    // Flush the screen's route-intent effect; native map effects stay outside this test.
+    firstEffect?.();
     return renderToStaticMarkup(React.createElement(Nearby));
   };
 }
@@ -162,3 +178,61 @@ for (const scope of [null, "a".repeat(64)]) {
     }
   });
 }
+
+
+test("Nearby map shows only selected-scope active SOS coordinates and keeps historical reports distinct from peer positions", () => {
+  const now = Date.now();
+  const base = {
+    id: "historical", name: "Requester", originNodeId: "requester", mine: false,
+    category: "injured", createdAt: now - 600_000, updatedAt: now,
+    status: "active", transport: "received", recipientCount: 0, forwardedCount: 0,
+    seenCount: 0, offers: [], pendingUpdate: false,
+    location: { source: "device", latitude: 47.65, longitude: -122.30, capturedAt: now - 600_000 },
+  };
+  const state = {
+    nodeId: "me", activeGroupId: null, groups: [], people: [
+      { nodeId: "fresh-peer", name: "Fresh peer", scope: null, connected: true, lastSeenAt: now, unreadCount: 0, location: { latitude: 47.65, longitude: -122.30, capturedAt: now } },
+      { nodeId: "stale-peer", name: "Stale peer", scope: null, connected: true, lastSeenAt: now, unreadCount: 0, location: { latitude: 47.65, longitude: -122.30, capturedAt: now - 600_000 } },
+    ],
+    requests: [
+      base,
+      { ...base, id: "private", groupId: "private-group" },
+      { ...base, id: "completed", status: "completed" },
+      { ...base, id: "canceled", status: "canceled" },
+      { ...base, id: "expired", status: "expired" },
+      { ...base, id: "invalid", location: { source: "device", latitude: 91, longitude: 0 } },
+      { ...base, id: "no-location", location: { source: "unavailable" } },
+    ],
+    location: { source: "unavailable" }, locationPermission: "denied", locationSharing: false,
+    relayEnabled: true, relayRunning: true, bluetooth: "poweredOn",
+    map: { status: "ready", progress: 1, bundled: true }, internet: false,
+  };
+  const render = screen(() => state, () => now);
+  const map = render("map");
+  assert.match(map, /data-point="request-historical"/);
+  assert.match(map, /SOS reported location/);
+  assert.match(map, /data-point="person-fresh-peer"/);
+  assert.ok(!map.includes('data-point="person-stale-peer"'), "old SOS reports may persist, but stale peer positions must expire");
+  for (const id of ["private", "completed", "canceled", "expired", "invalid", "no-location"]) {
+    assert.ok(!map.includes(`data-point="request-${id}"`), `${id} must not create a map marker`);
+  }
+  assert.ok(!render().includes('data-point="request-historical"'), "People stays the default list");
+});
+
+
+test("explicit map navigation opens Map once and clears its intent without changing the People default", () => {
+  const now = Date.now();
+  const state = {
+    nodeId: "me", activeGroupId: null, groups: [], people: [], requests: [],
+    location: { source: "unavailable" }, locationPermission: "denied", locationSharing: false,
+    relayEnabled: true, relayRunning: true, bluetooth: "poweredOn",
+    map: { status: "ready", progress: 1, bundled: true }, internet: false,
+  };
+  const route: { view?: string } = { view: "map" };
+  const render = screen(() => state, () => now, route);
+  assert.match(render(), /Map options/, "Settings intent must open the real map view");
+  assert.equal(route.view, undefined, "consumed intent must not keep forcing Map");
+  assert.ok(!render("people").includes("Map options"), "choosing People after consumption must stick");
+  route.view = "unsupported";
+  assert.ok(!render().includes("Map options"), "unrecognized views must not change the default");
+});

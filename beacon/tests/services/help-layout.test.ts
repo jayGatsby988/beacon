@@ -31,6 +31,8 @@ function helpScreen(getState: () => any) {
     if (name === "react-native")
       return {
         View: container,
+        ScrollView: container,
+        Modal: ({ visible, children }: any) => visible ? container({ children }) : null,
         Text: text,
         Pressable: button,
         StyleSheet: { create: (value: unknown) => value },
@@ -43,6 +45,8 @@ function helpScreen(getState: () => any) {
     if (name.endsWith("/services/BeaconContext"))
       return { useBeacon: getState };
     if (name.endsWith("/components/RequestCard")) return cards;
+    if (name.endsWith("/components/AudiencePicker")) return audience;
+    if (name === "react-native-safe-area-context") return { useSafeAreaInsets: () => ({ bottom: 0 }) };
     if (name === "./ui" || name.endsWith("/components/ui"))
       return {
         Screen: container,
@@ -78,6 +82,7 @@ function helpScreen(getState: () => any) {
     );
     return module.exports;
   };
+  const audience = load("../../apps/mobile/src/components/AudiencePicker.tsx");
   const cards = load("../../apps/mobile/src/components/RequestCard.tsx");
   const Home = load("../../apps/mobile/app/(tabs)/index.tsx").default;
   return {
@@ -127,6 +132,8 @@ function request(
 }
 function state(requests: RequestView[]) {
   return {
+    nodeId: "self",
+    offerHelp: async (_requestId: string) => {},
     activeGroupId: null as string | null,
     groups: [{ id: "group-a", name: "Test group" }],
     requests,
@@ -157,8 +164,7 @@ test("Help shows incoming active/accepted requests only for the current audience
   );
   ui.pressMatching("public-active");
   assert.deepEqual(ui.routes, ["/request/public-active"]);
-  ui.pressMatching("Change group");
-  assert.equal(ui.routes.at(-1), "/groups");
+  assert.equal(ui.hasAction("Send SOS to: Public Nearby. Change audience"), true);
   b.activeGroupId = "group-a";
   const privateHtml = ui.render();
   assert.match(privateHtml, /private-active request note/);
@@ -208,4 +214,35 @@ test("Help sends only after an explicit SOS action and navigates to the service-
   await ui.press("Send SOS now");
   assert.deepEqual(JSON.parse(JSON.stringify(sent)), [{ category: "other" }]);
   assert.deepEqual(ui.routes, ["/request/created-by-service"]);
+});
+
+
+test("incoming cards offer help directly only while open and unassigned", async () => {
+  const ownOffer = { id: "offer-self", nodeId: "self", name: "You", createdAt: 100, accepted: false, assignmentReceived: false };
+  const b = state([
+    request("eligible", null),
+    request("already-offered", null, { offers: [ownOffer] }),
+    request("accepted", null, { status: "accepted" }),
+    request("assigned", null, { acceptedOfferId: "someone-else" }),
+    request("private", "group-a"),
+  ]);
+  const offered: string[] = [];
+  b.offerHelp = async (id) => { offered.push(id); };
+  const ui = helpScreen(() => b);
+  const html = ui.render();
+  assert.equal(ui.hasAction("Offer help to eligible"), true);
+  for (const id of ["already-offered", "accepted", "assigned", "private"]) {
+    assert.equal(ui.hasAction(`Offer help to ${id}`), false);
+  }
+  assert.match(html, /Offer saved · awaiting acceptance/);
+  await ui.press("Offer help to eligible");
+  assert.deepEqual(offered, ["eligible"]);
+  assert.deepEqual(ui.routes, [], "offering help must not require opening request details");
+});
+
+test("Help reports absence of received requests without claiming absence of people", () => {
+  const ui = helpScreen(() => state([]));
+  const html = ui.render();
+  assert.match(html, /Nothing received yet/);
+  assert.doesNotMatch(html, /No users nearby|No requests in your area/);
 });

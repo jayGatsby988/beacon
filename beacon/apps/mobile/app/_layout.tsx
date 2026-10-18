@@ -35,6 +35,7 @@ export default function RootLayout() {
           <Stack.Screen name="incident" />
           <Stack.Screen name="settings" />
           <Stack.Screen name="groups" />
+          <Stack.Screen name="messages" />
           <Stack.Screen name="chat/[id]" />
         </Stack>
         <CallOverlay />

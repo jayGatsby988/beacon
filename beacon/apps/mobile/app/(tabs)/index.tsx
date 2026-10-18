@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
-import { ChevronDown, ChevronRight, LockKeyhole, Radio, Users } from "lucide-react-native";
+import { ChevronDown, ChevronRight, Radio, MapPin, Plus, HeartHandshake } from "lucide-react-native";
 import { useBeacon } from "../../src/services/BeaconContext";
 import {
   ErrorNotice,
@@ -11,6 +11,7 @@ import {
   Screen,
   useAction,
 } from "../../src/components/ui";
+import AudiencePicker from "../../src/components/AudiencePicker";
 import { RequestCard } from "../../src/components/RequestCard";
 import { Category } from "../../src/ui/types";
 import { colors as c, fonts } from "../../src/theme/tokens";
@@ -27,7 +28,6 @@ function HelpContent({ b }: { b: ReturnType<typeof useBeacon> }) {
   const [place, setPlace] = useState("");
   const action = useAction();
   const group = b.groups.find((g) => g.id === b.activeGroupId);
-  const audience = group?.name || (b.activeGroupId ? "Private group" : "Everyone nearby");
   const currentRequests = b.requests.filter(
     (request) =>
       (request.groupId ?? null) === b.activeGroupId &&
@@ -36,7 +36,7 @@ function HelpContent({ b }: { b: ReturnType<typeof useBeacon> }) {
   const active = currentRequests.find((request) => request.mine);
   const incoming = currentRequests
     .filter((request) => !request.mine)
-    .sort((a, z) => z.createdAt - a.createdAt);
+    .sort((a, z) => z.updatedAt - a.updatedAt);
   const send = () =>
     action.run(async () => {
       const id = await b.sendSOS({
@@ -47,25 +47,14 @@ function HelpContent({ b }: { b: ReturnType<typeof useBeacon> }) {
       router.push(`/request/${id}`);
     });
   return (
-    <Screen title="Help">
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Send to ${audience}. Change group`}
-        onPress={() => router.push("/groups")}
-        style={({ pressed }) => [s.audience, pressed && { opacity: 0.65 }]}
-      >
-        <View style={s.audienceIcon}>
-          {b.activeGroupId ? <LockKeyhole size={20} color={c.text} /> : <Users size={20} color={c.text} />}
-        </View>
-        <View style={{ flex: 1, gap: 3 }}>
-          <Text style={s.caption}>Send to</Text>
-          <Text style={s.audienceName}>{audience}</Text>
-        </View>
-        <ChevronDown size={20} color={c.secondary} />
-      </Pressable>
+    <Screen title="Help" main>
+      <View style={s.intro}>
+        <Heading size={26}>Need help?</Heading>
+        <View style={s.audienceWrap}><AudiencePicker label="Send SOS to" /></View>
+      </View>
       {active ? (
         <View style={{ gap: 12 }}>
-          <Heading size={24}>Your SOS</Heading>
+          <Heading size={20}>Your active SOS</Heading>
           <RequestCard request={active} />
         </View>
       ) : (
@@ -83,9 +72,15 @@ function HelpContent({ b }: { b: ReturnType<typeof useBeacon> }) {
               action.busy && { opacity: 0.55 },
             ]}
           >
-            <View style={s.sosSymbol}><Radio color={c.onAction} size={32} /></View>
-            <Text style={s.sosText}>{action.busy ? "Saving…" : "Send SOS"}</Text>
-            <Text style={s.sosHint}>Ask for help in one tap</Text>
+            <View style={s.outerRing}>
+              <View style={s.innerRing}>
+                <View style={s.sosCircle}>
+                  <Radio color={c.onAction} size={25} />
+                  <Text maxFontSizeMultiplier={1.4} style={s.sosText}>SOS</Text>
+                  <Text style={s.sosHint}>{action.busy ? "SAVING…" : "TAP TO SEND"}</Text>
+                </View>
+              </View>
+            </View>
           </Pressable>
           <Pressable
             accessibilityRole="button"
@@ -93,7 +88,10 @@ function HelpContent({ b }: { b: ReturnType<typeof useBeacon> }) {
             onPress={() => setDetails((open) => !open)}
             style={s.detailsToggle}
           >
-            <Text style={s.detailsLabel}>{details ? "Hide details" : "Add details"}</Text>
+            <View style={s.detailsStart}>
+              <Plus size={18} color={c.secondary} />
+              <Text style={s.detailsLabel}>{details ? "Hide details" : "Add details"}</Text>
+            </View>
             <View style={s.detailsEnd}>
               {!details && <Text style={s.caption}>Optional</Text>}
               <ChevronDown color={c.secondary} size={19} style={{ transform: [{ rotate: details ? "180deg" : "0deg" }] }} />
@@ -112,6 +110,10 @@ function HelpContent({ b }: { b: ReturnType<typeof useBeacon> }) {
               <Field label="Where are you?" placeholder="Building, floor or landmark" value={place} onChangeText={setPlace} maxLength={120} />
             </View>
           )}
+          <View style={s.locationLine}>
+            <MapPin size={14} color={c.muted} />
+            <Text style={s.caption}>{place.trim() ? "Your landmark will be attached" : b.locationPermission === "granted" ? "Last known location, if available" : "You can send without a location"}</Text>
+          </View>
           <Text style={s.safety}>Does not call emergency services.</Text>
         </View>
       )}
@@ -135,36 +137,48 @@ function HelpContent({ b }: { b: ReturnType<typeof useBeacon> }) {
       )}
       <View style={s.requests}>
         <View style={s.sectionHeader}>
-          <Heading size={23}>Help requests</Heading>
+          <Heading size={20}>Requests you can help with</Heading>
           {incoming.length > 0 && <Text style={s.count}>{incoming.length}</Text>}
         </View>
         {incoming.length ? incoming.map((request) => (
-          <RequestCard key={request.id} request={request} />
+          <RequestCard key={request.id} request={request} showOffer />
         )) : (
-          <Text style={s.empty}>No requests in {group ? "this group" : "your area"}.</Text>
+          <View style={s.emptyCard}>
+            <View style={s.emptyIcon}><HeartHandshake size={23} color={c.secondary} /></View>
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text style={s.emptyTitle}>Nothing received yet</Text>
+              <Text style={s.empty}>Requests from {group ? "this group" : "the public network"} will appear when they reach your phone.</Text>
+            </View>
+          </View>
         )}
       </View>
     </Screen>
   );
 }
 const s = StyleSheet.create({
-  audience: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 12, paddingBottom: 4 },
-  audienceIcon: { width: 44, height: 44, borderRadius: 15, backgroundColor: c.raised, justifyContent: "center", alignItems: "center" },
-  audienceName: { fontFamily: fonts.medium, fontSize: 17, lineHeight: 23, color: c.text },
-  caption: { fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: c.secondary },
+  intro: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, paddingTop: 4 },
+  audienceWrap: { maxWidth: "65%" },
+  caption: { fontFamily: fonts.body, fontSize: 12, lineHeight: 18, color: c.secondary, flexShrink: 1 },
   compose: { gap: 0 },
-  sos: { backgroundColor: c.red, borderRadius: 30, padding: 26, minHeight: 225, justifyContent: "center", alignItems: "center", gap: 13 },
-  sosSymbol: { width: 58, height: 58, borderRadius: 29, borderWidth: 1, borderColor: "rgba(255,255,255,0.35)", justifyContent: "center", alignItems: "center" },
-  sosText: { fontFamily: fonts.headline, fontSize: 46, lineHeight: 53, letterSpacing: -1, color: c.onAction, textAlign: "center" },
-  sosHint: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 20, color: c.onAction, textAlign: "center" },
-  detailsToggle: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, paddingHorizontal: 3 },
-  detailsLabel: { fontFamily: fonts.medium, fontSize: 15, color: c.text, flexShrink: 1 },
-  detailsEnd: { flexDirection: "row", alignItems: "center", gap: 8 },
+  sos: { backgroundColor: c.card, borderWidth: 1, borderColor: c.border, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 22, justifyContent: "center", alignItems: "center", gap: 15 },
+  outerRing: { borderRadius: 999, borderWidth: 1, borderColor: "#37282E", padding: 12, maxWidth: "100%" },
+  innerRing: { borderRadius: 999, borderWidth: 1, borderColor: "#663139", padding: 10 },
+  sosCircle: { minWidth: 164, minHeight: 164, borderRadius: 999, padding: 22, backgroundColor: c.red, alignItems: "center", justifyContent: "center", gap: 3 },
+  sosText: { fontFamily: fonts.headline, fontSize: 58, lineHeight: 64, letterSpacing: 1, color: c.onAction, textAlign: "center", flexShrink: 1 },
+  sosHint: { fontFamily: fonts.medium, fontSize: 11, lineHeight: 17, letterSpacing: 1.5, color: c.onAction, textAlign: "center" },
+  detailsToggle: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, paddingHorizontal: 3 },
+  detailsStart: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
+  detailsLabel: { fontFamily: fonts.medium, fontSize: 14, color: c.text, flexShrink: 1 },
+  detailsEnd: { flexDirection: "row", alignItems: "center", gap: 5 },
   details: { gap: 16, paddingTop: 3, paddingBottom: 18 },
+  locationLine: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, marginBottom: 5 },
   safety: { fontFamily: fonts.body, fontSize: 12, lineHeight: 18, color: c.muted, textAlign: "center" },
   connectionNotice: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.card, borderRadius: 16, padding: 16, minHeight: 52 },
-  requests: { borderTopWidth: 1, borderTopColor: c.border, paddingTop: 23, gap: 14 },
+  requests: { paddingTop: 2, gap: 14 },
   sectionHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
-  count: { fontFamily: fonts.medium, fontSize: 13, color: c.text, paddingVertical: 4, paddingHorizontal: 9, backgroundColor: c.raised, borderRadius: 12 },
-  empty: { fontFamily: fonts.body, fontSize: 14, lineHeight: 21, color: c.secondary, paddingBottom: 10 },
+  count: { fontFamily: fonts.medium, fontSize: 12, color: c.text, paddingVertical: 4, paddingHorizontal: 9, backgroundColor: c.raised, borderRadius: 8 },
+  emptyCard: { backgroundColor: c.card, borderWidth: 1, borderColor: c.border, borderRadius: 16, padding: 18, flexDirection: "row", alignItems: "center", gap: 13 },
+  emptyIcon: { width: 42, height: 42, backgroundColor: c.raised, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  emptyTitle: { fontFamily: fonts.medium, fontSize: 15, lineHeight: 22, color: c.text },
+  empty: { fontFamily: fonts.body, fontSize: 13, lineHeight: 20, color: c.secondary },
 });

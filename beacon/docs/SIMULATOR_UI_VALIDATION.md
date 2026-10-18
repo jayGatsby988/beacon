@@ -1,5 +1,18 @@
 # Simulator UI validation
 
+## Reference-inspired interface — October 18, approximately 03:57–04:02
+
+Current production JavaScript and assets were exported into the existing compatible iPhone 17 Pro / iOS 26.0.1 simulator binary, ad-hoc signed, installed and launched. Device Hub provided native accessibility control. This UI pass did not change native transport code.
+
+- Inspected the circular SOS, restrained charcoal palette, Help/Nearby navigation, empty inbox, profile settings, and audience sheet. Selecting the existing QA group updated the audience; Public Nearby was restored. No request, peer, or conversation was fabricated or sent in this pass.
+- Nearby Map rendered the bundled UW streets/buildings and current simulated You position. Location sharing remained off. Visual inspection exposed an overly tall map, so the final layout moves the sharing switch above a shorter viewport. Map options, Locate and OSM attribution now fit the default phone viewport. Historical coverage and position age remain below the map.
+- Profile Edit revealed the optional name form; changing its draft enabled Save. Cancel discarded the edit. Location & map opened Nearby with Map selected. Messages opened the real empty inbox.
+- Home rendered correctly at standard size and, after a fresh launch, at XXXL text size. Changing Dynamic Type while the app was already running temporarily clipped labels until restart; this remains a known limitation. The simulator was restored to its original large text setting and left on Help. Keyboard entry, populated chats and full screen-reader order were not validated in this pass.
+- The workspace suite passed 172 tests, with one database-dependent skip and no failures. TypeScript and ESLint passed. Focused Help and Nearby checks passed after the final copy and map sizing changes.
+- A separate fully signed Release device build passed signature verification. Both physical-phone installations succeeded. Per-phone launch results and the exact embedded bundle fingerprint are in [reference-design.json](evidence/reference-design.json). Installation or simulator rendering does not establish real BLE, audio, or saved-area download acceptance.
+
+Final native captures: [Help](screenshots/reference-design/home.png), [Map](screenshots/reference-design/nearby-map.png), [Messages](screenshots/reference-design/messages.png), [Profile](screenshots/reference-design/profile.png), [Audience](screenshots/reference-design/audience.png), and [XXXL Home after fresh launch](screenshots/reference-design/home-large-text.png).
+
 Observed through native CUA against the existing **iPhone 17 Pro / iOS 26.0 Simulator**, October 17, 2026, approximately 21:40–21:42 America/Los_Angeles. This was the rebuilt Release app after the fractional location timestamp correction. No production source was changed during this smoke test.
 
 ## Confirmed from the running app

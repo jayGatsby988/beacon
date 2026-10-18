@@ -26,8 +26,9 @@ import {
   ChevronRight,
   Settings2,
 } from "lucide-react-native";
-import Svg, { Circle, Path } from "react-native-svg";
+import Svg, { Path } from "react-native-svg";
 import { colors as c, fonts } from "../theme/tokens";
+import MainHeader from "./MainHeader";
 
 export function Label({
   children,
@@ -84,7 +85,7 @@ export function BeaconMark({
       accessibilityElementsHidden
     >
       <Path d="M24 6 7 39h10l7-14 7 14h10L24 6Z" fill={color} />
-      <Circle cx="24" cy="36" r="4" fill={color} />
+      <Path d="m24 31 5 5-5 5-5-5Z" fill={color} />
     </Svg>
   );
 }
@@ -93,7 +94,7 @@ export function Brand() {
     <View style={styles.brand}>
       <BeaconMark />
       <Text maxFontSizeMultiplier={1.4} style={styles.wordmark}>
-        BEACON
+        Beacon
       </Text>
     </View>
   );
@@ -101,11 +102,16 @@ export function Brand() {
 export function TopBar({
   back,
   title,
+  main = false,
+  hideSettings = false,
 }: {
   back?: boolean;
   title?: string;
   network?: string;
+  main?: boolean;
+  hideSettings?: boolean;
 }) {
+  if (main) return <MainHeader brand={<Brand />} />;
   return (
     <View style={styles.topBar}>
       {back ? (
@@ -127,7 +133,7 @@ export function TopBar({
         <Brand />
       )}
       {back && title && <Text accessibilityRole="header" style={styles.topTitle}>{title}</Text>}
-      {back ? (
+      {back || hideSettings ? (
         <View style={{ width: 48 }} />
       ) : (
         <>
@@ -150,17 +156,21 @@ export function Screen({
   title,
   network,
   footer,
+  main = false,
+  hideSettings = false,
 }: {
   children: ReactNode;
   back?: boolean;
   title?: string;
   network?: string;
   footer?: ReactNode;
+  main?: boolean;
+  hideSettings?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
-      <TopBar back={back} title={title} network={network} />
+      <TopBar back={back} title={title} network={network} main={main} hideSettings={hideSettings} />
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -431,10 +441,10 @@ export const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 640,
     alignSelf: "center",
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 20,
-    gap: 22,
+    gap: 20,
   },
   topBar: {
     width: "100%",
@@ -449,9 +459,9 @@ export const styles = StyleSheet.create({
   },
   brand: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
   wordmark: {
-    fontFamily: fonts.wordmark,
-    fontSize: 25,
-    letterSpacing: 0.8,
+    fontFamily: fonts.medium,
+    fontSize: 24,
+    letterSpacing: -0.9,
     color: c.text,
   },
   topTitle: {
@@ -464,8 +474,8 @@ export const styles = StyleSheet.create({
   pageTitle: {
     textAlign: "left",
     paddingLeft: 6,
-    fontSize: 30,
-    lineHeight: 37,
+    fontSize: 26,
+    lineHeight: 32,
     letterSpacing: -0.8,
   },
   iconButton: {
@@ -513,7 +523,7 @@ export const styles = StyleSheet.create({
     backgroundColor: c.card,
     borderColor: c.border,
     borderWidth: 1,
-    borderRadius: 22,
+    borderRadius: 16,
     padding: 18,
     gap: 12,
   },

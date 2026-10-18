@@ -1,0 +1,62 @@
+{
+  "recordedAt": "2026-10-18T11:02:38.699732+00:00",
+  "scope": "Reference-inspired UI redesign; no native, transport or protocol implementation changes.",
+  "checks": {
+    "workspaceTests": {
+      "total": 173,
+      "passed": 172,
+      "failed": 0,
+      "skipped": 1,
+      "skipReason": "Database integration requires configured database"
+    },
+    "typecheck": "passed",
+    "eslint": "passed",
+    "finalHelpTests": "5 passed",
+    "finalNearbyTests": "4 passed",
+    "codeReview": "passed after correcting setup newline"
+  },
+  "deviceBuild": {
+    "configuration": "Release",
+    "sdk": "iphoneos27.1",
+    "embeddedBundleSha256": "1782727ca52258ece7f9d48465ee819a8114f47f8e8fae04da413181a9163ae7",
+    "embeddedBundleBytes": 11140767,
+    "signingVerification": "codesign --verify --deep --strict passed"
+  },
+  "devices": [
+    {
+      "phone": "pravanram",
+      "installed": true,
+      "launch": "confirmed by devicectl",
+      "userReportedOpen": true
+    },
+    {
+      "phone": "vaibhav",
+      "installed": true,
+      "launch": "blocked by locked device",
+      "userReportedOpen": true
+    }
+  ],
+  "simulator": {
+    "device": "iPhone 17 Pro",
+    "runtime": "iOS 26.0.1",
+    "method": "Fresh production JavaScript and assets in existing compatible native binary, ad-hoc signed",
+    "observed": [
+      "Help render",
+      "Help/Nearby navigation",
+      "People/Map switch",
+      "Bundled UW geometry and simulated You position, sharing off",
+      "Location & map link selects Map",
+      "Inbox empty state",
+      "Profile edit draft and cancel",
+      "Audience switch to existing QA group and back to Public Nearby",
+      "Home at XXXL text size after fresh launch"
+    ],
+    "screenshots": "docs/screenshots/reference-design"
+  },
+  "limitations": [
+    "No Bluetooth/audio acceptance test in this design pass",
+    "No successful saved-area download established",
+    "Changing simulator text size while already running clipped some labels until app restart; cold launch at XXXL rendered correctly",
+    "No real peer/request fixtures added in this pass"
+  ]
+}

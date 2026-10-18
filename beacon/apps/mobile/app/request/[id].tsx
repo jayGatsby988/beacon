@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { Check, ChevronDown, ChevronUp } from "lucide-react-native";
+import { Check, ChevronDown, ChevronUp, Radio, HeartHandshake } from "lucide-react-native";
 import { useBeacon } from "../../src/services/BeaconContext";
 import {
   Body,
@@ -14,10 +14,11 @@ import {
   TextButton,
   useAction,
   styles,
+  StatusLine,
 } from "../../src/components/ui";
 import { categoryNames, requestStatus } from "../../src/components/RequestCard";
 import { LocationCard } from "../../src/components/LocationCard";
-import { colors as c } from "../../src/theme/tokens";
+import { colors as c, fonts } from "../../src/theme/tokens";
 
 function Disclosure({
   title,
@@ -100,7 +101,7 @@ function RequestContent({ id }: { id: string }) {
   const closed = ["completed", "canceled", "expired"].includes(r.status);
   const myOffer = r.offers.find((offer) => offer.nodeId === b.nodeId);
   const accepted = r.offers.find((offer) => offer.id === r.acceptedOfferId);
-  const canOffer = !r.mine && !closed && !myOffer && !accepted;
+  const canOffer = !r.mine && r.status === "active" && !myOffer && !r.acceptedOfferId;
   const selectedOffer =
     r.offers.find((offer) => offer.id === selectedOfferId) ?? r.offers[0];
   const status =
@@ -132,26 +133,36 @@ function RequestContent({ id }: { id: string }) {
     );
   return (
     <Screen back title="Request">
-      <View style={{ gap: 8 }}>
-        <Heading>{categoryNames[r.category]}</Heading>
-        <Text style={styles.caption}>
-          {r.mine ? "You" : r.name || "Participant"} · {formatTime(r.createdAt)}
+      <View style={[s.summary, r.status === "completed" && s.completed]}>
+        <View style={s.summaryTop}>
+          <Text style={[s.eyebrow, r.status === "completed" && s.darkText]}>{r.status === "completed" ? "REQUEST COMPLETED" : r.mine ? "YOUR SOS" : "HELP REQUEST"}</Text>
+          {r.status === "completed" ? <Check size={24} color={c.background} /> : <Radio size={24} color={r.mine ? c.redLabel : c.secondary} />}
+        </View>
+        <Text accessibilityRole="header" style={[s.requestTitle, r.status === "completed" && s.darkText]}>{categoryNames[r.category]}</Text>
+        <Text style={[styles.caption, r.status === "completed" && s.darkText]}>
+          {r.mine ? "You" : r.name || "Participant"} · Created {formatTime(r.createdAt)}
         </Text>
-        <Text style={styles.smallTitle} accessibilityLiveRegion="polite">
-          {status}
-        </Text>
-        {statusDetail && <Text style={styles.caption}>{statusDetail}</Text>}
-        {r.pendingUpdate && (
-          <Text style={styles.caption}>
-            Update waiting to be shared. Others may still see the old request.
-          </Text>
-        )}
-        {!!r.note && <Body>{r.note}</Body>}
+        <View style={[s.statusBox, r.status === "completed" && { borderTopColor: "#CAD1D6" }]}>
+          <Text style={[s.statusTitle, r.status === "completed" && s.darkText]} accessibilityLiveRegion="polite">{status}</Text>
+          {statusDetail && <Text style={styles.caption}>{statusDetail}</Text>}
+          {r.pendingUpdate && <Text style={[styles.caption, r.status === "completed" && s.darkText]}>Update waiting to be shared. Others may still see the old request.</Text>}
+        </View>
       </View>
+      {!!r.note && <View style={s.noteCard}><Text style={s.eyebrow}>REQUEST DETAILS</Text><Body>{r.note}</Body></View>}
+      {r.mine && !closed && !accepted && r.offers.length === 0 && (
+        <View style={s.waitingCard}>
+          <HeartHandshake size={25} color={c.secondary} />
+          <View style={{ flex: 1, gap: 5 }}>
+            <Text style={styles.smallTitle}>Waiting for offers</Text>
+            <Text style={styles.caption}>Volunteer offers will appear here when they reach your phone.</Text>
+          </View>
+        </View>
+      )}
 
       {canOffer && (
         <View style={{ gap: 4 }}>
           <Button
+            secondary
             busy={action.busy}
             onPress={() =>
               action.run(() => b.offerHelp(r.id, note.trim() || undefined))
@@ -179,7 +190,8 @@ function RequestContent({ id }: { id: string }) {
 
       {!closed && r.mine && !accepted && r.offers.length > 0 && (
         <View style={{ gap: 10 }}>
-          <Text style={styles.smallTitle}>Offers · {r.offers.length}</Text>
+          <Heading size={20}>Volunteer offers · {r.offers.length}</Heading>
+          <Text style={styles.caption}>Choose an offer to accept. Confirmation appears after the volunteer’s phone acknowledges it.</Text>
           {r.offers.map((offer) => {
             const selected = selectedOffer?.id === offer.id;
             return (
@@ -223,6 +235,7 @@ function RequestContent({ id }: { id: string }) {
             );
           })}
           <Button
+            secondary
             busy={action.busy}
             onPress={() =>
               selectedOffer &&
@@ -280,14 +293,11 @@ function RequestContent({ id }: { id: string }) {
             onPress={() => setShowDelivery((shown) => !shown)}
           />
           {showDelivery && (
-            <Text style={styles.caption}>
-              {r.transport === "received"
-                ? "A participant saved this request. This is not a promise of help."
-                : r.transport === "forwarded"
-                  ? "Passed to a relay. No participant receipt yet."
-                  : "Saved on this phone. Waiting for another phone to connect."}
-              {r.seenCount > 0 ? ` Seen by ${r.seenCount}.` : ""}
-            </Text>
+            <View style={s.delivery}>
+              <StatusLine complete title="Saved on this phone" detail={`Created ${formatTime(r.createdAt)} · Updated ${formatTime(r.updatedAt)}`} />
+              <StatusLine complete={r.transport === "forwarded" || r.transport === "received"} title={r.transport === "received" ? "Participant receipt received" : r.transport === "forwarded" ? "Passed to a relay" : "Waiting for a connection"} detail={r.transport === "received" ? "A participant saved the request. This is not a promise of help." : r.transport === "forwarded" ? "No participant receipt yet." : "Ready to share when another phone connects."} />
+              <StatusLine complete={r.seenCount > 0} title={r.seenCount > 0 ? `Seen by ${r.seenCount}` : "No view confirmation yet"} />
+            </View>
           )}
         </View>
       )}
@@ -296,3 +306,17 @@ function RequestContent({ id }: { id: string }) {
     </Screen>
   );
 }
+
+const s = StyleSheet.create({
+  summary: { backgroundColor: c.card, borderWidth: 1, borderColor: c.border, borderRadius: 16, padding: 20, gap: 10 },
+  summaryTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  eyebrow: { fontFamily: fonts.medium, fontSize: 11, lineHeight: 17, letterSpacing: 1.8, color: c.secondary, flexShrink: 1 },
+  requestTitle: { fontFamily: fonts.medium, fontSize: 28, lineHeight: 35, letterSpacing: -0.7, color: c.text },
+  statusBox: { marginTop: 6, paddingTop: 16, borderTopWidth: 1, borderTopColor: c.border, gap: 7 },
+  statusTitle: { fontFamily: fonts.medium, fontSize: 18, lineHeight: 25, color: c.text },
+  completed: { backgroundColor: c.text, borderColor: c.text },
+  darkText: { color: c.background },
+  noteCard: { gap: 8 },
+  waitingCard: { flexDirection: "row", gap: 14, padding: 18, backgroundColor: c.card, borderWidth: 1, borderColor: c.border, borderRadius: 16, alignItems: "center" },
+  delivery: { paddingVertical: 12, gap: 18 },
+});

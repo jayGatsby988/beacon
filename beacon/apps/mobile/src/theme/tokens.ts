@@ -1,17 +1,17 @@
 import { Platform } from "react-native";
 export const colors = {
-  background: "#111317",
-  card: "#191C22",
-  raised: "#20242B",
-  border: "#2A2E36",
-  text: "#F5F5F4",
+  background: "#0B1014",
+  card: "#141B21",
+  raised: "#1D262E",
+  border: "#2A343D",
+  text: "#F7F9FA",
   onAction: "#FFFFFF",
-  secondary: "#B3B7BF",
-  muted: "#8C929E",
-  red: "#D23A3A",
-  alert: "#2A1519",
-  alertBorder: "#C2393B",
-  redLabel: "#F07070",
+  secondary: "#BAC4CC",
+  muted: "#96A3AD",
+  red: "#D9363E",
+  alert: "#251418",
+  alertBorder: "#713039",
+  redLabel: "#FF8A91",
 };
 export const fonts = {
   headline: "InterTight-Black",
@@ -20,5 +20,5 @@ export const fonts = {
   wordmark: "BarlowCondensed-Bold",
   fallback: Platform.select({ ios: "System", android: "sans-serif" }),
 };
-export const radius = { sm: 12, md: 20, lg: 28 };
+export const radius = { sm: 12, md: 16, lg: 24 };
 export const spacing = { xs: 6, sm: 12, md: 20, lg: 28, xl: 40, xxl: 56 };
