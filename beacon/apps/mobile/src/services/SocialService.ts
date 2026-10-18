@@ -44,11 +44,14 @@ export class SocialService {
       sent: Set<string>;
       receipts: Set<string>;
       lastPresence: number;
+      announcing?: Promise<void>;
       lastLocation: number;
       sharedLocation: boolean;
       rateStart: number;
       received: number;
       sends: number;
+      attempts: Map<string, number>;
+      attemptOrder: number;
     }
   >();
   private contentCache = new Map<
@@ -104,6 +107,8 @@ export class SocialService {
         rateStart: this.now(),
         received: 0,
         sends: 0,
+        attempts: new Map(),
+        attemptOrder: 0,
       });
     }
     await this.announce(peerId);
@@ -197,22 +202,28 @@ export class SocialService {
     this.contentCache.set(record.id, { wire: record.wire, metadata, content });
     return content;
   }
-  private async announce(peerId: string) {
+  private announce(peerId: string): Promise<void> {
     const session = this.sessions.get(peerId);
-    if (!session) return;
+    if (!session) return Promise.resolve();
+    if (session.announcing) return session.announcing;
     const scope = this.options.scope();
-    await this.options.send(
-      peerId,
-      createPresence(
-        this.options.identity,
-        this.options.name(),
+    session.announcing = (async () => {
+      await this.options.send(
+        peerId,
+        createPresence(
+          this.options.identity,
+          this.options.name(),
+          scope,
+          this.now(),
+          this.options.random,
+        ),
         scope,
-        this.now(),
-        this.options.random,
-      ),
-      scope,
-    );
-    session.lastPresence = this.now();
+      );
+      session.lastPresence = this.now();
+    })().finally(() => {
+      session.announcing = undefined;
+    });
+    return session.announcing;
   }
   /** Broadcast a current opt-in fix, or withdraw only from sessions already disclosed to. */
   announceLocation(): Promise<void> {
@@ -400,9 +411,10 @@ export class SocialService {
       if (!current()) return true;
       // A peer may join this group while the native connection remains open.
       if (this.now() - session.lastPresence > 5_000)
-        await this.announce(peerId);
-      await this.sendLocations();
-      await this.flush();
+        void this.track(() => this.announce(peerId)).catch(this.options.onError);
+      // Receiving must not wait on outbound radio writes: it owns the durable inbound queue.
+      void this.sendLocations().catch(this.options.onError);
+      void this.flush().catch(this.options.onError);
       await this.refresh();
       return true;
     }
@@ -483,8 +495,8 @@ export class SocialService {
       if (!current()) return true;
       // Signed encrypted messages can arrive before a presence response; the key is still authenticated.
       session.nodeId = packet.origin;
-      await this.sendLocations();
-      await this.flush();
+      void this.sendLocations().catch(this.options.onError);
+      void this.flush().catch(this.options.onError);
     }
     await this.refresh();
     return true;
@@ -576,6 +588,15 @@ export class SocialService {
               p.expiresAt > this.now() &&
               !delivered.has(p.id),
           );
+          // Prefer packets that have waited longest for an attempt. Retrying the
+          // oldest 32 every tick otherwise permanently starves newer messages and receipts.
+          const queuedIds = new Set(queue.map((packet) => packet.id));
+          for (const id of session.attempts.keys())
+            if (!queuedIds.has(id)) session.attempts.delete(id);
+          queue.sort(
+            (a, b) =>
+              (session.attempts.get(a.id) ?? 0) - (session.attempts.get(b.id) ?? 0),
+          );
           let sent = 0;
           for (const packet of queue) {
             if (
@@ -595,6 +616,7 @@ export class SocialService {
               session.sent.delete(first);
               session.receipts.delete(first);
             }
+            session.attempts.set(packet.id, ++session.attemptOrder);
             session.sent.add(packet.id);
             session.sends++;
             if (content.kind === "receipt") session.receipts.add(packet.id);
