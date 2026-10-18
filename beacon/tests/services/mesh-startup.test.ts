@@ -38,7 +38,7 @@ function fixture(
     map?: () => Promise<void>;
     network?: () => Promise<unknown>;
     location?: () => Promise<unknown>;
-    position?: () => Promise<unknown>;
+    position?: (options: { accuracy: number }) => Promise<unknown>;
     requestPermission?: () => Promise<unknown>;
     fastLocationTimeout?: boolean;
     beforeSave?: () => Promise<void>;
@@ -135,7 +135,7 @@ function fixture(
     },
     "expo-crypto": { getRandomBytes: randomBytes, randomUUID },
     "expo-location": {
-      Accuracy: { Balanced: 3 },
+      Accuracy: { Balanced: 3, High: 4 },
       getCurrentPositionAsync: options.position ?? never,
       requestForegroundPermissionsAsync: options.requestPermission ?? (async () => ({ status: "denied", granted: false })),
       getForegroundPermissionsAsync:
@@ -412,6 +412,26 @@ test("optional location permission inspection failures leave offline SOS availab
   assert.equal(h.service.state.relayRunning, true);
   const requestId = await h.service.sendSOS();
   assert.ok(h.service.state.requests.some((request) => request.id === requestId));
+});
+
+test("locating at HUB requests GPS precision and preserves actual sensor coordinates and accuracy", async (t) => {
+  const observed = { latitude: 47.655495, longitude: -122.305148, accuracy: 18 };
+  const requests: number[] = [];
+  const h = fixture({
+    location: async () => ({ status: "granted", granted: true }),
+    position: async ({ accuracy }) => {
+      requests.push(accuracy);
+      return { coords: observed, timestamp: Date.now() };
+    },
+  });
+  t.after(() => h.service.dispose());
+  await h.service.initialize();
+  await turn();
+  const fix = await h.service.state.locateOnMap();
+  assert.ok(requests.length > 0 && requests.every((accuracy) => accuracy >= 4), "use GPS-level accuracy rather than a coarse neighborhood fix");
+  assert.equal(fix.latitude, observed.latitude);
+  assert.equal(fix.longitude, observed.longitude);
+  assert.equal(fix.accuracy, observed.accuracy, "reported precision must come from the device");
 });
 
 test("transient GPS failure preserves a recent fix without making its timestamp fresh; stale or revoked fixes disappear", async (t) => {

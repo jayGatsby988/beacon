@@ -239,3 +239,85 @@ test("a saved distant area does not hide bundled UW streets at the current locat
   const initial = { ...props(), map: { status: "ready", progress: 1, bundled: false, styleUrl: "file:///elsewhere.json", bounds: [-74.02, 40.7, -73.9, 40.8] } };
   assert.equal(surface(h.render(NearbyMap, initial)).props.mapKey, "bundled");
 });
+
+// UW's own HUB visitor page links this map center:
+// https://hub.washington.edu/about/plan-your-visit/
+const hub = { ...location, longitude: -122.305148, latitude: 47.655495 };
+
+test("bundled geometry contains a building at UW's HUB map position", () => {
+  const campus = campusStyle.sources.campus.data;
+  const [x, y] = [hub.longitude, hub.latitude];
+  assert.ok(x >= CAMPUS_BOUNDS[0] && x <= CAMPUS_BOUNDS[2] && y >= CAMPUS_BOUNDS[1] && y <= CAMPUS_BOUNDS[3]);
+  const contains = (ring: number[][]) => {
+    let result = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const a = ring[i], b = ring[j];
+      if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) result = !result;
+    }
+    return result;
+  };
+  assert.ok(campus.features.some((feature) => feature.properties.kind === "building" && feature.geometry.type === "Polygon" && contains(feature.geometry.coordinates[0] as number[][])), "HUB must have actual bundled building geometry, not merely metadata bounds");
+});
+
+test("HUB request details use bundled streets when the saved map is elsewhere", () => {
+  const h = harness();
+  const RequestMap = h.load("../../apps/mobile/src/services/RequestMap.tsx").default;
+  const map = { status: "ready", progress: 1, bundled: false, styleUrl: "file:///new-york.json", bounds: [-74.02, 40.7, -73.9, 40.8] };
+  const tree = h.render(RequestMap, { location: hub, map });
+  const native = find(tree, (node) => node.type === "MapView");
+  assert.match(native.key, /bundled$/);
+  assert.deepEqual(JSON.parse(native.props.mapStyle), campusStyle);
+  const camera = find(tree, (node) => node.type === "Camera");
+  assert.deepEqual(Array.from(camera.props.centerCoordinate), [hub.longitude, hub.latitude]);
+  const again = h.render(RequestMap, { location: { ...hub }, map });
+  assert.equal(find(again, (node) => node.type === "Camera").props.centerCoordinate, camera.props.centerCoordinate, "caption rerenders preserve the native camera input");
+});
+
+test("HUB GPS stays centered despite distant peer and SOS reports; missing fixes never manufacture a You marker", () => {
+  const h = harness();
+  const NearbyMap = h.load("../../apps/mobile/src/components/NearbyMap.tsx").default;
+  const initial = { ...props(), ownLocation: hub, pins: [{ nodeId: "far", name: "Far", location: { ...location, longitude: -74, latitude: 40.75 } }], requests: [{ id: "far-sos", status: "active", name: "Far SOS", location: { ...location, longitude: -74, latitude: 40.75 } }] };
+  const first = surface(h.render(NearbyMap, initial));
+  const updates: any[] = [];
+  first.props.camera.current = { setCamera: (value: any) => updates.push(value), fitBounds: () => assert.fail("Distant reports must not pull the GPS camera away from HUB") };
+  first.props.onReady();
+  h.render(NearbyMap, initial);
+  assert.deepEqual(Array.from(updates[0].centerCoordinate), [hub.longitude, hub.latitude]);
+  const expired = surface(h.render(NearbyMap, { ...initial, now: at + LOCATION_LIMITS.ttlMs }));
+  assert.ok(!expired.props.markers.some((marker: any) => marker.kind === "you"));
+  const noFix = h.render(NearbyMap, { ...initial, ownLocation: { source: "unavailable" }, pins: [], requests: [] });
+  assert.equal(surface(noFix).props.markers.length, 0);
+  assert.ok(find(noFix, (node) => node.type === "Text" && React.Children.toArray(node.props.children).join("").includes("Showing map area only.")));
+});
+
+test("locate centers the new device fix without fitting distant reports", async () => {
+  const h = harness();
+  const NearbyMap = h.load("../../apps/mobile/src/components/NearbyMap.tsx").default;
+  const current = { ...hub, capturedAt: Date.now() };
+  const initial = { ...props(), ownLocation: current, now: Date.now(), onLocate: async () => current,
+    pins: [{ nodeId: "far", name: "Far", location: { ...current, longitude: -74, latitude: 40.75 } }] };
+  const first = surface(h.render(NearbyMap, initial));
+  const updates: any[] = [];
+  first.props.camera.current = { setCamera: (value: any) => updates.push(value), fitBounds: () => assert.fail("Locate should center on the device") };
+  first.props.onReady();
+  const tree = h.render(NearbyMap, initial);
+  const locate = find(tree, (node) => node.type === "Pressable" && node.props.accessibilityLabel === "Find my location");
+  locate.props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(updates.length, 2);
+  assert.deepEqual(Array.from(updates[1].centerCoordinate), [hub.longitude, hub.latitude]);
+});
+
+test("a distant report does not label the covered HUB viewport as unsaved", () => {
+  const h = harness();
+  const NearbyMap = h.load("../../apps/mobile/src/components/NearbyMap.tsx").default;
+  const initial = { ...props(), ownLocation: hub,
+    pins: [{ nodeId: "far", name: "Far", location: { ...location, longitude: -74, latitude: 40.75 } }] };
+  const first = surface(h.render(NearbyMap, initial));
+  first.props.onReady();
+  const covered = h.render(NearbyMap, initial);
+  const warning = (tree: any) => find(tree, (node) => node.type === "Text" && node.props.children === "Streets not saved here");
+  assert.equal(warning(covered), undefined, "offscreen reports must not mislabel the visible campus map");
+  first.props.onRegionChange({ geometry: { coordinates: [-74, 40.75] } });
+  assert.ok(warning(h.render(NearbyMap, initial)), "panning outside coverage still explains missing streets");
+});

@@ -1020,7 +1020,9 @@ export class BeaconService {
       }
       const position = await Promise.race([
         Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
+          // Nearby coordination needs a building-level fix. Balanced accuracy
+          // can avoid GPS, which is especially unhelpful with Wi-Fi/cellular off.
+          accuracy: Location.Accuracy.High,
         }),
         new Promise<null>((resolve) => {
           timer = setTimeout(() => resolve(null), 6000);

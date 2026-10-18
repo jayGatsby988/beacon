@@ -297,9 +297,8 @@ export default function NearbyMap({
     ...validPins.map((pin) => [pin.location.longitude, pin.location.latitude]),
     ...requestPins.map((request) => [request.location.longitude!, request.location.latitude!]),
   ];
-  const outsideCoverage =
-    !inCoverage(viewCenter) ||
-    coordinates.some((coordinate) => !inCoverage(coordinate));
+  // The coverage label describes the visible area, not offscreen reports.
+  const outsideCoverage = !inCoverage(viewCenter);
   useEffect(() => {
     setActionError(undefined);
     if (!focusRequestId) {
@@ -333,7 +332,8 @@ export default function NearbyMap({
       (fittedPeers.current || !validPins.length)
     )
       return;
-    fitLocations(camera.current, coordinates, areaCenter);
+    // Finding yourself must not zoom out to a distant SOS or peer report.
+    fitLocations(camera.current, own ? [[own.longitude, own.latitude]] : coordinates, areaCenter);
     centered.current = true;
     fittedFocusRevision.current = focusRevision;
     if (validPins.length) fittedPeers.current = true;
@@ -362,18 +362,12 @@ export default function NearbyMap({
     try {
       const report = await onLocate();
       const currentTime = Date.now();
-      const points = pins
-        .filter((pin) => freshLocation(pin.location, currentTime))
-        .map((pin) => [pin.location.longitude, pin.location.latitude]);
-      points.push(...requestPins.map((request) => [request.location.longitude!, request.location.latitude!]));
-      if (report.source === "device" && freshLocation(report, currentTime)) {
-        points.unshift([report.longitude, report.latitude]);
-      } else {
+      if (report.source !== "device" || !freshLocation(report, currentTime)) {
         setActionError("Your location is unavailable. Try again.");
+        return;
       }
-      if (points.length) fitLocations(camera.current, points, areaCenter);
+      fitLocations(camera.current, [[report.longitude, report.latitude]], areaCenter);
       centered.current = true;
-      if (points.length > 1) fittedPeers.current = true;
     } catch (error) {
       setActionError(
         error instanceof Error
@@ -541,8 +535,8 @@ export default function NearbyMap({
         )}
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Find my location and show nearby people"
-          accessibilityHint="Centers the map on you and available nearby locations. Pinch the map to zoom."
+          accessibilityLabel="Find my location"
+          accessibilityHint="Centers the map on your current GPS location. Pinch the map to see nearby people."
           accessibilityState={{ busy: locating, disabled: !ready || locating }}
           disabled={!ready || locating}
           onPress={() => void recenter()}
@@ -609,7 +603,12 @@ export default function NearbyMap({
             {activeRequestCount ? ` · ${activeRequestCount} SOS` : ""}
           </Text>
           {own && <Text style={s.caption}>Your location · {locationLabel(own, now)}</Text>}
-          {!own && !validPins.length && <Text style={s.caption}>Use the locate button to find yourself.</Text>}
+          {!own && <Text style={s.caption}>
+            {ownLocation.source === "device" && Number.isFinite(ownLocation.capturedAt)
+              ? "Your GPS fix is not current. Locate again to update your position."
+              : "Your GPS location is unavailable. Use locate to find yourself."}
+            {!coordinates.length ? " Showing map area only." : ""}
+          </Text>}
         </View>
       )}
       {(actionError || map.error || (onlineFailed && showOnline)) && (
