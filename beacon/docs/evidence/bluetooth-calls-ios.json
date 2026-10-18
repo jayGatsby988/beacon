@@ -1,0 +1,54 @@
+{
+  "recordedAt": "2026-10-18T07:35:43.746879+00:00",
+  "branch": "codex/beacon",
+  "implementationCommit": "94cc544",
+  "bundleId": "org.beacon.community.dev",
+  "bundleBytes": 7738579,
+  "bundleSHA256": "aba9456c38e110aa77df5c92b560e6588d951dde4d45ed8dd2468c78bccdabd5",
+  "binarySHA256": "69169d79ed51cfb0c9019a3bb0551bb69e4bc0dab120d2d74613f2a7302c6bd9",
+  "releaseBuild": "passed",
+  "signatureVerification": "passed",
+  "microphoneUsageDescriptionPresent": true,
+  "sceneLifecyclePresent": true,
+  "workspace": {
+    "tests": 116,
+    "passed": 116,
+    "failed": 0,
+    "skipped": 0,
+    "typecheck": "passed",
+    "lint": "passed",
+    "database": "real local PostgreSQL/TimescaleDB"
+  },
+  "native": {
+    "opusFramesEncodedDecoded": 100,
+    "cryptoChecks": "passed",
+    "realConverterAndProductionPCMScenarios": 22,
+    "physicalDuplexAudioVerified": false
+  },
+  "firstPhysicalTest": {
+    "source": "user report",
+    "bothTimersRunning": true,
+    "microphonePermissionAllowedBoth": true,
+    "speakerAndVolumeUpTried": true,
+    "result": "both phones silent"
+  },
+  "correction": {
+    "defect": "Valid hardware PCM chunks were discarded by fixed 4096-frame and 3200-sample limits",
+    "fix": "Bound capture duration and split converted samples into 320-sample codec frames",
+    "reproducedCases": [
+      "4800 input frames at 48000 Hz",
+      "4096 input frames at 16000 Hz"
+    ],
+    "physicalRetest": "pending"
+  },
+  "installation": {
+    "iPhone17Pro": "latest corrected/minimal build installed and launched",
+    "iPhone17ProMax": "initial voice build installed; correction update blocked by device unavailable",
+    "iPhone18ProMax": "unavailable"
+  },
+  "limits": [
+    "No successful physical duplex speech test yet",
+    "No measured radio range/latency/throughput or SOS-under-call hardware test",
+    "Calling requires two updated physical iPhones with Beacon in foreground"
+  ]
+}

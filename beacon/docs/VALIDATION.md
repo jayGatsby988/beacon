@@ -1,6 +1,16 @@
-# Beacon verification record — October 17, 2026
+# Beacon verification record
 
 Implementation, automated checks, native compilation, and physical acceptance are separate evidence. This document does not infer radio delivery or rescue from a build passing.
+
+## Bluetooth calls and minimal interface — October 18
+
+The final signed iPhone Release build includes direct Bluetooth LE L2CAP calling, Opus speech, authenticated encrypted audio, explicit acceptance, mute/speaker controls, and call cleanup. The complete local Timescale workspace check passes **116 tests, zero failures, zero skips**. Final mobile/API typechecking and lint pass. Native checks also pass: 100 actual Opus encode/decode frames, CryptoKit authentication/replay tests, and 22 real AVAudioConverter/production PCM scenarios. These are distinct from a successful hardware call.
+
+The first build installed and launched on both available iPhones. The user reported that both call timers ran, microphone permission was allowed, and both phones remained silent even with Speaker and volume raised. Investigation reproduced two concrete capture bugs: valid 4,800-frame/48 kHz microphone blocks exceeded a fixed 4,096-frame guard, and 4,096-frame/16 kHz blocks exceeded a 3,200-sample accumulator guard. The correction bounds input by duration and splits all accepted converted PCM into 320-sample codec frames. The retained native regressions exercise these actual production helpers. Whether these bugs caused the observed physical silence still needs a retest; no successful two-way speech result is claimed.
+
+The corrected build, including the final UI cleanup, installed and launched on the iPhone 17 Pro. Updating the iPhone 17 Pro Max failed with CoreDevice error 4016 after its connection became unavailable. A subsequent status check still showed it unavailable despite the user's reconnection attempt; cable/Wi-Fi reconnection instructions were requested. The iPhone 18 Pro Max was also unavailable. Sanitized build, test, installation, and unresolved hardware status are recorded in [the calling evidence](evidence/bluetooth-calls-ios.json).
+
+Settings now contains only name, Nearby sharing, and phone permissions. Cloud/map-download configuration, diagnostics/history navigation, request identifiers, and the manual “Mark seen” control were removed from the normal interface. Opening an active incoming request now queues its receipt automatically; the assistance offer/accept/confirmed workflow remains separate. Current Home and Settings were visually checked in Simulator, including the Save button above the keyboard. The visual QA uses a compatible older simulator native binary and proves no Bluetooth audio behavior. See [UI evidence](SIMULATOR_UI_VALIDATION.md) and [calling architecture/limits](BLUETOOTH_CALLS.md).
 
 ## iOS 27 startup correction — October 18, 00:08 Pacific
 
