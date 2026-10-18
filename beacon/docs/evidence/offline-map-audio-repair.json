@@ -1,0 +1,106 @@
+{
+  "recordedAt": "2026-10-18T08:04:03Z",
+  "issue": "Paired calls connect but no microphone tap callbacks are observed. Nearby map was not using saved map state.",
+  "beforeFix": {
+    "installedBundleSha256": "8ce4c1bb8ec1d454c4561adea8fd92faefae5a0dbb5689be5b791cc7b5512bfd",
+    "physicalCall": {
+      "result": "failed: silent on both phones",
+      "wifiCellularDisabled": "not independently confirmed",
+      "phones": [
+        {
+          "model": "iPhone 17 Pro Max",
+          "trace": [
+            "[BeaconVoice] stream attached role=listener",
+            "[BeaconVoice] stream peer challenge authenticated",
+            "[BeaconVoice] stream ready authenticated",
+            "[BeaconVoice] audio start permission=1735552628",
+            "[BeaconVoice] audio configure speaker=false",
+            "[BeaconVoice] audio input rate=48000.0 channels=1 format=1 interleaved=false route=Receiver",
+            "[BeaconVoice] audio engine started player=true sampleRate=48000.0",
+            "[BeaconVoice] speaker=true route=Speaker",
+            "[BeaconVoice] live active=true txFrames=0 rxFrames=0 txBytes=96 rxBytes=124 drops=0 preActive=0 queued=0 ",
+            "[BeaconVoice] live active=true txFrames=0 rxFrames=0 txBytes=124 rxBytes=152 drops=0 preActive=0 queued=0 ",
+            "[BeaconVoice] live active=true txFrames=0 rxFrames=0 txBytes=152 rxBytes=180 drops=0 preActive=0 queued=0 ",
+            "[BeaconVoice] end reason=local_ended active=true txFrames=0 rxFrames=0 txBytes=180 rxBytes=208 drops=0 preActive=0 queued=0 "
+          ]
+        },
+        {
+          "model": "iPhone 18 Pro Max",
+          "trace": [
+            "[BeaconVoice] stream attached role=opener",
+            "[BeaconVoice] stream peer challenge authenticated",
+            "[BeaconVoice] stream ready authenticated",
+            "[BeaconVoice] audio start permission=1735552628",
+            "[BeaconVoice] audio configure speaker=false",
+            "[BeaconVoice] audio input rate=48000.0 channels=1 format=1 interleaved=false route=Receiver",
+            "[BeaconVoice] audio engine started player=true sampleRate=48000.0",
+            "[BeaconVoice] live active=true txFrames=0 rxFrames=0 txBytes=96 rxBytes=96 drops=0 preActive=0 queued=0 ",
+            "[BeaconVoice] speaker=true route=Speaker",
+            "[BeaconVoice] live active=true txFrames=0 rxFrames=0 txBytes=124 rxBytes=124 drops=0 preActive=0 queued=0 ",
+            "[BeaconVoice] live active=true txFrames=0 rxFrames=0 txBytes=152 rxBytes=152 drops=0 preActive=0 queued=0 ",
+            "[BeaconVoice] live active=true txFrames=0 rxFrames=0 txBytes=180 rxBytes=180 drops=0 preActive=0 queued=0 ",
+            "[BeaconVoice] end reason=remote_ended active=true txFrames=0 rxFrames=0 txBytes=208 rxBytes=208 drops=0 preActive=0 queued=0 "
+          ]
+        }
+      ]
+    }
+  },
+  "afterFix": {
+    "validation": {
+      "workspace": {
+        "tests": 143,
+        "passed": 143,
+        "failed": 0,
+        "skipped": 0,
+        "typecheck": true,
+        "lint": true,
+        "actualLocalTimescaleHttp": true
+      },
+      "iosReleaseBuild": true,
+      "strictSignatureVerified": true,
+      "sourcesOlderThanBundle": true,
+      "physicalSpeech": "pending paired retest"
+    },
+    "artifact": {
+      "bundleId": "org.beacon.community.dev",
+      "bundleBytes": 7788193,
+      "bundleSha256": "61712b469cd34f307b0b8ccb8725c6aebac2f6053d2ffd8d713d4216197d13a0",
+      "executableSha256": "f1cd9a5e6db363d591fe62c2ef4ff401037cfd74a3e779b6f396ebc338e1d3b1",
+      "bundleTimeUtc": "2026-10-18T08:10:05.242103+00:00"
+    },
+    "offlineMap": {
+      "embeddedStyleHasRemoteResources": false,
+      "defaultMapUsesLocalGeometry": true,
+      "savedLocalFileRenderer": "verified in labeled simulator fixture",
+      "outOfCoveragePinRenderer": "verified in labeled simulator fixture",
+      "liveProvider": {
+        "endpoint": "https://overpass.private.coffee/api/interpreter",
+        "method": "POST",
+        "area": "public UW campus, approximately 2 km",
+        "httpStatus": 200,
+        "elapsedSeconds": 3.24,
+        "rawBytes": 5150290,
+        "features": 7027,
+        "points": 39426,
+        "savedStyleBytes": 1701440
+      },
+      "physicalSaveAndOfflineReopen": "pending"
+    },
+    "installations": [
+      {
+        "model": "iPhone 17 Pro Max",
+        "installed": true,
+        "remoteLaunch": "Security rejection; strict local signature verification passed",
+        "manualOpen": "user reports open",
+        "pairedAudioRetest": "pending"
+      },
+      {
+        "model": "iPhone 18 Pro Max",
+        "installed": true,
+        "remoteLaunch": "Security rejection; strict local signature verification passed",
+        "manualOpen": "user reports open",
+        "pairedAudioRetest": "pending"
+      }
+    ]
+  }
+}

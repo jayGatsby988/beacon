@@ -4,7 +4,7 @@ import MapLibre, { type CameraRef } from "@maplibre/maplibre-react-native";
 import { LocateFixed, MapPin, MessageCircle, X } from "lucide-react-native";
 import { router } from "expo-router";
 import { LOCATION_LIMITS } from "@beacon/protocol";
-import type { LocationReport } from "../ui/types";
+import type { LocationReport, MapState } from "../ui/types";
 import { colors as c, fonts } from "../theme/tokens";
 import { campusStyle } from "./campusMapStyle";
 
@@ -47,33 +47,57 @@ export function locationLabel(location: NearbyLocation, now: number) {
     seconds < 60 ? `${seconds}s ago` : `${Math.floor(seconds / 60)}m ago`;
   return `${age}${location.accuracy != null && Number.isFinite(location.accuracy) ? ` · ±${Math.round(location.accuracy)} m` : ""}`;
 }
-const inCampus = (coordinate: number[]) =>
-  coordinate[0] >= CAMPUS_BOUNDS[0] &&
-  coordinate[0] <= CAMPUS_BOUNDS[2] &&
-  coordinate[1] >= CAMPUS_BOUNDS[1] &&
-  coordinate[1] <= CAMPUS_BOUNDS[3];
 
 export default function NearbyMap({
   ownLocation,
   pins,
   internet,
+  map,
+  onSaveArea,
+  onCancelSave,
   now,
   height,
 }: {
   ownLocation: LocationReport;
   pins: NearbyPin[];
   internet: boolean | null;
+  map: MapState;
+  onSaveArea?: () => Promise<void>;
+  onCancelSave?: () => Promise<void>;
   now: number;
   height: number;
 }) {
   const camera = useRef<CameraRef>(null);
+  const [showOnline, setShowOnline] = useState(false);
+  const [actionError, setActionError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const [savedFailed, setSavedFailed] = useState(false);
   const [onlineFailed, setOnlineFailed] = useState(false);
   const [offlineFailed, setOfflineFailed] = useState(false);
   const [ready, setReady] = useState(false);
-  const [viewOutsideCampus, setViewOutsideCampus] = useState(false);
+  const [viewCenter, setViewCenter] = useState<number[]>(CAMPUS_CENTER);
   const [selectedId, setSelectedId] = useState<string>();
   const centered = useRef(false);
-  const online = internet === true && !onlineFailed;
+  const online = showOnline && internet === true && !onlineFailed;
+  const saved =
+    (map.status === "ready" || map.savedAvailable === true) &&
+    !map.bundled &&
+    !!map.styleUrl &&
+    !savedFailed;
+  const bundled = !online && !saved;
+  const bounds = saved && map.bounds ? map.bounds : CAMPUS_BOUNDS;
+  const inCoverage = (coordinate: number[]) =>
+    coordinate[0] >= bounds[0] &&
+    coordinate[0] <= bounds[2] &&
+    coordinate[1] >= bounds[1] &&
+    coordinate[1] <= bounds[3];
+  const areaCenter = [(bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2];
+  const mapStyle = online
+    ? ONLINE_STYLE
+    : saved
+      ? map.styleUrl!
+      : OFFLINE_STYLE;
+  const downloading = saving || map.status === "downloading";
   const own =
     ownLocation.source === "device" && freshLocation(ownLocation, now)
       ? ownLocation
@@ -84,13 +108,17 @@ export default function NearbyMap({
     ...(own ? [[own.longitude, own.latitude]] : []),
     ...validPins.map((pin) => [pin.location.longitude, pin.location.latitude]),
   ];
-  const outsideCampus =
-    viewOutsideCampus ||
-    coordinates.some((coordinate) => !inCampus(coordinate));
+  const outsideCoverage =
+    !inCoverage(viewCenter) ||
+    coordinates.some((coordinate) => !inCoverage(coordinate));
   const ownLongitude = own?.longitude;
   const ownLatitude = own?.latitude;
   const firstLongitude = validPins[0]?.location.longitude;
   const firstLatitude = validPins[0]?.location.latitude;
+  useEffect(() => {
+    setSavedFailed(false);
+    setOfflineFailed(false);
+  }, [map.styleUrl, map.updatedAt]);
   useEffect(() => {
     setOnlineFailed(false);
     setOfflineFailed(false);
@@ -115,7 +143,7 @@ export default function NearbyMap({
   const recenter = () => {
     if (!coordinates.length) {
       camera.current?.setCamera({
-        centerCoordinate: CAMPUS_CENTER,
+        centerCoordinate: areaCenter,
         zoomLevel: 14.7,
         animationDuration: 400,
       });
@@ -155,21 +183,24 @@ export default function NearbyMap({
           </View>
         ) : (
           <MapLibre.MapView
-            key={online ? "online" : "offline"}
+            key={
+              online ? "online" : saved ? `saved-${map.styleUrl}-${map.updatedAt ?? 0}` : "bundled"
+            }
             style={s.map}
-            mapStyle={online ? ONLINE_STYLE : OFFLINE_STYLE}
+            mapStyle={mapStyle}
             onWillStartLoadingMap={() => setReady(false)}
             onDidFinishLoadingMap={() => setReady(true)}
             onRegionDidChange={(region) =>
-              setViewOutsideCampus(!inCampus(region.geometry.coordinates))
+              setViewCenter(region.geometry.coordinates)
             }
             onDidFailLoadingMap={() => {
               setReady(false);
               if (online) setOnlineFailed(true);
+              else if (saved) setSavedFailed(true);
               else setOfflineFailed(true);
             }}
             logoEnabled={false}
-            attributionEnabled={online}
+            attributionEnabled={!bundled}
             attributionPosition={{ bottom: 10, left: 10 }}
             compassEnabled={false}
             pitchEnabled={false}
@@ -178,7 +209,7 @@ export default function NearbyMap({
             <MapLibre.Camera
               ref={camera}
               defaultSettings={{
-                centerCoordinate: coordinates[0] ?? CAMPUS_CENTER,
+                centerCoordinate: coordinates[0] ?? areaCenter,
                 zoomLevel: coordinates.length ? 16 : 14.7,
               }}
             />
@@ -235,7 +266,7 @@ export default function NearbyMap({
         >
           <LocateFixed color={c.text} size={22} />
         </Pressable>
-        {!online && (
+        {bundled && (
           <Pressable
             accessibilityRole="link"
             accessibilityLabel="OpenStreetMap attribution and license"
@@ -254,12 +285,90 @@ export default function NearbyMap({
         <Text style={s.caption}>
           {online
             ? "Online map"
-            : outsideCampus
-              ? "Offline · street map covers UW campus only"
-              : "UW campus · offline map"}
+            : outsideCoverage
+              ? saved
+                ? "Outside saved area · positions still shown"
+                : "Outside UW campus · positions still shown"
+              : saved
+                ? "Saved area · offline map"
+                : "UW campus · offline map"}
           {!coordinates.length ? " · area overview" : ""}
         </Text>
         {own && <Text style={s.caption}>You · {locationLabel(own, now)}</Text>}
+        <View style={s.mapActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={
+              showOnline ? "Use offline map" : "View online map"
+            }
+            disabled={!showOnline && internet !== true}
+            onPress={() => {
+              setShowOnline(!showOnline);
+              setOnlineFailed(false);
+              setReady(false);
+            }}
+            style={[
+              s.mapAction,
+              !showOnline && internet !== true && s.disabled,
+            ]}
+          >
+            <Text style={s.actionText}>
+              {showOnline ? "Use offline map" : "View online"}
+            </Text>
+          </Pressable>
+          {(onSaveArea || downloading) && (
+            <Pressable
+              accessibilityRole="button"
+              disabled={
+                downloading ? !onCancelSave : internet !== true || !onSaveArea
+              }
+              onPress={() => {
+                setActionError(undefined);
+                if (downloading) {
+                  void onCancelSave?.().catch((error: unknown) =>
+                    setActionError(
+                      error instanceof Error
+                        ? error.message
+                        : "Could not cancel map download.",
+                    ),
+                  );
+                } else {
+                  setSaving(true);
+                  void onSaveArea?.()
+                    .then(() => setShowOnline(false))
+                    .catch((error: unknown) =>
+                      setActionError(
+                        error instanceof Error
+                          ? error.message
+                          : "Could not save area.",
+                      ),
+                    )
+                    .finally(() => setSaving(false));
+                }
+              }}
+              style={[
+                s.mapAction,
+                !downloading && internet !== true && s.disabled,
+              ]}
+            >
+              <Text style={s.actionText}>
+                {downloading
+                  ? "Cancel save"
+                  : "Save my area"}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+        {(actionError || map.error) && (
+          <Text accessibilityLiveRegion="polite" style={s.caption}>
+            {actionError || map.error}
+          </Text>
+        )}
+        {onlineFailed && showOnline && (
+          <Text style={s.caption}>
+            Online map unavailable. Showing offline map.
+          </Text>
+        )}
       </View>
       {selected && (
         <View style={s.selection}>
@@ -378,6 +487,9 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: c.border,
   },
+  mapActions: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  mapAction: { minHeight: 48, justifyContent: "center", paddingHorizontal: 4 },
+  actionText: { fontFamily: fonts.medium, fontSize: 13, color: c.text },
   caption: {
     fontFamily: fonts.body,
     fontSize: 12,
@@ -424,5 +536,6 @@ const s = StyleSheet.create({
     padding: 12,
   },
   messageText: { fontFamily: fonts.medium, fontSize: 15, color: c.background },
+  disabled: { opacity: 0.45 },
   pressed: { opacity: 0.7 },
 });

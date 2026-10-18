@@ -175,6 +175,9 @@ export default function Nearby() {
         ownLocation={b.location}
         pins={pins}
         internet={b.internet}
+        map={b.map}
+        onSaveArea={b.downloadMap}
+        onCancelSave={b.cancelMapDownload}
         now={now}
         height={Math.max(300, Math.min(420, height * 0.43))}
       />

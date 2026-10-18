@@ -4,6 +4,8 @@ import MapLibre from "@maplibre/maplibre-react-native";
 import type { LocationReport, MapState } from "../ui/types";
 import { campusStyle } from "../components/campusMapStyle";
 import { colors as c, fonts } from "../theme/tokens";
+const OFFLINE_STYLE = JSON.stringify(campusStyle);
+
 export default function RequestMap({
   location,
   map,
@@ -12,30 +14,41 @@ export default function RequestMap({
   map: MapState;
 }) {
   const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [map.styleUrl, map.bundled, map.updatedAt]);
+  const [savedFailed, setSavedFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+    setSavedFailed(false);
+  }, [map.styleUrl, map.bundled, map.updatedAt]);
+  const saved =
+    (map.status === "ready" || map.savedAvailable === true) &&
+    !map.bundled &&
+    !!map.styleUrl &&
+    !savedFailed;
+  const bounds =
+    saved && map.bounds ? map.bounds : [-122.313, 47.65, -122.299, 47.66];
   const longitude = location.longitude,
     latitude = location.latitude;
   const within =
     longitude != null &&
     latitude != null &&
-    (!map.bounds ||
-      (longitude >= map.bounds[0] &&
-        longitude <= map.bounds[2] &&
-        latitude >= map.bounds[1] &&
-        latitude <= map.bounds[3]));
-  if (map.status !== "ready" || !within || failed)
+    longitude >= bounds[0] &&
+    longitude <= bounds[2] &&
+    latitude >= bounds[1] &&
+    latitude <= bounds[3];
+  if (
+    longitude == null ||
+    latitude == null ||
+    !Number.isFinite(longitude) ||
+    !Number.isFinite(latitude) ||
+    failed
+  )
     return (
       <View style={s.empty}>
         <Text style={s.title}>
-          {!within
-            ? "Outside your saved map"
-            : failed
-              ? "Map could not open"
-              : "Map unavailable offline"}
+          {failed ? "Map could not open" : "No reported location"}
         </Text>
         <Text style={s.body}>
-          Use the reported coordinates and place description below. A map never
-          replaces the location’s accuracy report.
+          Use the place description and reported coordinates below.
         </Text>
       </View>
     );
@@ -43,10 +56,13 @@ export default function RequestMap({
     <View style={{ flex: 1 }}>
       <MapLibre.MapView
         style={{ flex: 1 }}
-        mapStyle={map.bundled ? JSON.stringify(campusStyle) : map.styleUrl}
-        onDidFailLoadingMap={() => setFailed(true)}
+        key={saved ? `${map.styleUrl}-${map.updatedAt ?? 0}` : "bundled"}
+        mapStyle={saved ? map.styleUrl : OFFLINE_STYLE}
+        onDidFailLoadingMap={() =>
+          saved ? setSavedFailed(true) : setFailed(true)
+        }
         logoEnabled={false}
-        attributionEnabled={!map.bundled}
+        attributionEnabled={saved}
         compassEnabled
         rotateEnabled={false}
         pitchEnabled={false}
@@ -75,9 +91,15 @@ export default function RequestMap({
         </MapLibre.ShapeSource>
       </MapLibre.MapView>
       <View style={s.tag}>
-        <Text style={s.tagText}>REPORTED LOCATION · STATIC MAP</Text>
+        <Text style={s.tagText}>
+          {within
+            ? "REPORTED LOCATION · OFFLINE MAP"
+            : saved
+              ? "OUTSIDE SAVED AREA · REPORTED POSITION"
+              : "OUTSIDE UW CAMPUS · REPORTED POSITION"}
+        </Text>
       </View>
-      {map.bundled && (
+      {!saved && (
         <Pressable
           accessibilityRole="link"
           accessibilityLabel="OpenStreetMap attribution and license"
