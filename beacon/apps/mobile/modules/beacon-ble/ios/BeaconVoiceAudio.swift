@@ -90,7 +90,7 @@ func beaconVoiceTrace(_ message: String) {
 }
 
 // Microphone/render callbacks never wait for the Bluetooth stream. There are at
-// most three capture blocks and six playback frames queued at any time.
+// most three capture blocks and twelve playback frames (240ms) queued at a time.
 final class BeaconVoiceAudio {
   private let engine = AVAudioEngine()
   private let player = AVAudioPlayerNode()
@@ -100,7 +100,7 @@ final class BeaconVoiceAudio {
   private let captureSink = AVAudioSinkNode { _, _, _ in noErr }
   private let queue = DispatchQueue(label: "org.beacon.voice.codec", qos: .userInteractive)
   private let captureSlots = DispatchSemaphore(value: 3)
-  private let playbackSlots = DispatchSemaphore(value: 6)
+  private let playbackSlots = DispatchSemaphore(value: BeaconVoicePCM.playbackFrameLimit)
   private var codec: BeaconOpusCodec?
   private var converter: AVAudioConverter?
   private var pcm = BeaconVoicePCM()
@@ -109,6 +109,9 @@ final class BeaconVoiceAudio {
   private var running = false
   private var muted = false
   private var tapInstalled = false
+  private var graphInputFormat: AVAudioFormat?
+  private var recovering = false
+  private let epoch = BeaconVoiceAudioEpoch()
   private var observers: [NSObjectProtocol] = []
   private var captureWatchdog: Timer?
   private let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
@@ -158,6 +161,9 @@ final class BeaconVoiceAudio {
     let session = AVAudioSession.sharedInstance()
     observers.append(NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
       self?.traceEngine("engine configuration changed")
+      // The SDK says this notification stops the engine while preserving old
+      // connection formats. Reconnect on a later main turn, outside its callback.
+      DispatchQueue.main.async { [weak self] in self?.recoverConfiguration() }
     })
     observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
       let reason = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
@@ -169,6 +175,10 @@ final class BeaconVoiceAudio {
     })
     observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
       self?.traceEngine("audio media services reset")
+      // Audio objects are invalid after a media-server reset. A new call must
+      // create a fresh engine instead of leaving an apparently active silent one.
+      guard let self, self.tapInstalled else { return }
+      self.onFailure?("audio_engine_stopped")
     })
     beaconVoiceTrace("audio configure speaker=\(speaker)")
     try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth])
@@ -193,44 +203,9 @@ final class BeaconVoiceAudio {
     // Use the same I/O client format for both halves of VoiceProcessingIO, as
     // Apple's UsingVoiceProcessing sample does; the mixer converts Opus's16k.
     engine.connect(engine.mainMixerNode, to: engine.outputNode, format: inputFormat)
+    graphInputFormat = inputFormat
     beaconVoiceTrace("audio graph inputSink=true explicitOutput=true ioRate=\(inputFormat.sampleRate) ioChannels=\(inputFormat.channelCount) autoShutdown=\(engine.isAutoShutdownEnabled)")
-    engine.inputNode.installTap(onBus: 0, bufferSize: 960, format: inputFormat) { [weak self] buffer, _ in
-      guard let self else { return }
-      let block = self.count("tapBlocks")
-      self.count("tapFrames", Int(buffer.frameLength))
-      if block == 1 {
-        let frames = buffer.frameLength; let rate = buffer.format.sampleRate; let channels = buffer.format.channelCount
-        DispatchQueue.main.async { beaconVoiceTrace("first tap frames=\(frames) rate=\(rate) channels=\(channels)") }
-      }
-      guard self.captureSlots.wait(timeout: .now()) == .success else { self.count("captureBackpressureDrops"); return }
-      let capturedAt = ProcessInfo.processInfo.systemUptime
-      guard BeaconVoicePCM.accepts(frameCount: Int(buffer.frameLength), sampleRate: buffer.format.sampleRate, channels: Int(buffer.format.channelCount)) else {
-        let drops = self.count("oversizeCaptureDrops"); self.captureSlots.signal()
-        if drops == 1 {
-          let frames = buffer.frameLength; let rate = buffer.format.sampleRate
-          DispatchQueue.main.async { [weak self] in
-            beaconVoiceTrace("unsupported tap block frames=\(frames) rate=\(rate)"); self?.onFailure?("audio_codec_failed")
-          }
-        }
-        return
-      }
-      guard let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength),
-        let source = buffer.floatChannelData, let target = copy.floatChannelData else {
-        self.count("captureFormatErrors"); self.captureSlots.signal()
-        DispatchQueue.main.async { [weak self] in self?.onFailure?("audio_codec_failed") }; return
-      }
-      copy.frameLength = buffer.frameLength
-      for channel in 0..<Int(buffer.format.channelCount) {
-        target[channel].update(from: source[channel], count: Int(buffer.frameLength))
-      }
-      if UnsafeBufferPointer(start: source[0], count: Int(buffer.frameLength)).contains(where: { abs($0) > 0.00001 }) { self.count("nonzeroTapBlocks") }
-      self.queue.async {
-        guard self.running, !self.muted else { self.captureSlots.signal(); return }
-        guard ProcessInfo.processInfo.systemUptime - capturedAt < 0.15 else { self.count("staleCaptureDrops"); self.captureSlots.signal(); return }
-        self.encode(copy, capturedAt: capturedAt)
-      }
-    }
-    tapInstalled = true
+    installCaptureTap(inputFormat, epoch: epoch.begin())
     engine.prepare()
     try engine.start()
     player.play()
@@ -238,10 +213,83 @@ final class BeaconVoiceAudio {
     beaconVoiceTrace("audio engine started player=\(player.isPlaying) sampleRate=\(session.sampleRate)")
   }
 
-  private func encode(_ input: AVAudioPCMBuffer, capturedAt: TimeInterval) {
+  private func installCaptureTap(_ inputFormat: AVAudioFormat, epoch generation: UInt64) {
+    engine.inputNode.installTap(onBus: 0, bufferSize: 960, format: inputFormat) { [weak self] buffer, _ in
+      guard let self, self.epoch.contains(generation) else { return }
+      let block = self.count("tapBlocks")
+      self.count("tapFrames", Int(buffer.frameLength))
+      if block == 1 {
+        let frames = buffer.frameLength; let rate = buffer.format.sampleRate; let channels = buffer.format.channelCount
+        DispatchQueue.main.async { beaconVoiceTrace("first tap frames=\(frames) rate=\(rate) channels=\(channels)") }
+      }
+      guard let permit = BeaconVoiceAudioPermit(self.captureSlots) else { self.count("captureBackpressureDrops"); return }
+      let capturedAt = ProcessInfo.processInfo.systemUptime
+      guard BeaconVoicePCM.accepts(frameCount: Int(buffer.frameLength), sampleRate: buffer.format.sampleRate, channels: Int(buffer.format.channelCount)) else {
+        let drops = self.count("oversizeCaptureDrops"); permit.release()
+        if drops == 1 {
+          let frames = buffer.frameLength; let rate = buffer.format.sampleRate
+          DispatchQueue.main.async { [weak self] in
+            guard let self, self.epoch.contains(generation) else { return }
+            beaconVoiceTrace("unsupported tap block frames=\(frames) rate=\(rate)"); self.onFailure?("audio_codec_failed")
+          }
+        }
+        return
+      }
+      guard let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength),
+        let source = buffer.floatChannelData, let target = copy.floatChannelData else {
+        self.count("captureFormatErrors"); permit.release()
+        self.failCodec(epoch: generation); return
+      }
+      copy.frameLength = buffer.frameLength
+      for channel in 0..<Int(buffer.format.channelCount) {
+        target[channel].update(from: source[channel], count: Int(buffer.frameLength))
+      }
+      if UnsafeBufferPointer(start: source[0], count: Int(buffer.frameLength)).contains(where: { abs($0) > 0.00001 }) { self.count("nonzeroTapBlocks") }
+      self.queue.async {
+        guard self.running, !self.muted, self.epoch.contains(generation) else { permit.release(); return }
+        guard ProcessInfo.processInfo.systemUptime - capturedAt < 0.15 else { self.count("staleCaptureDrops"); permit.release(); return }
+        self.encode(copy, capturedAt: capturedAt, epoch: generation, permit: permit)
+      }
+    }
+    tapInstalled = true
+  }
+
+  private func recoverConfiguration() {
+    guard tapInstalled, !recovering else { return }
+    let inputFormat = engine.inputNode.outputFormat(forBus: 0)
+    if engine.isRunning, player.isPlaying, graphInputFormat == inputFormat { return }
+    recovering = true
+    defer { recovering = false }
+    captureWatchdog?.invalidate(); captureWatchdog = nil
+    epoch.end()
+    engine.inputNode.removeTap(onBus: 0); tapInstalled = false
+    engine.stop()
+    queue.sync { running = false; player.stop(); pcm.reset(); converter = nil }
+    guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0, !inputFormat.isInterleaved,
+      let replacement = AVAudioConverter(from: inputFormat, to: format) else {
+      onFailure?("audio_engine_stopped"); return
+    }
+    engine.disconnectNodeOutput(engine.inputNode)
+    engine.disconnectNodeOutput(engine.mainMixerNode)
+    engine.connect(engine.inputNode, to: captureSink, format: inputFormat)
+    engine.connect(engine.mainMixerNode, to: engine.outputNode, format: inputFormat)
+    graphInputFormat = inputFormat
+    queue.sync { converter = replacement; running = true }
+    installCaptureTap(inputFormat, epoch: epoch.begin())
+    do {
+      engine.prepare(); try engine.start(); player.play(); watchCapture()
+      count("configurationRecoveries")
+      traceEngine("audio configuration recovered")
+    } catch {
+      beaconVoiceTrace("audio configuration restart failed code=\((error as NSError).code)")
+      onFailure?("audio_engine_stopped")
+    }
+  }
+
+  private func encode(_ input: AVAudioPCMBuffer, capturedAt: TimeInterval, epoch generation: UInt64, permit: BeaconVoiceAudioPermit) {
     guard let converter, let codec,
       let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(BeaconVoicePCM.outputCapacity(frameCount: Int(input.frameLength), sampleRate: input.format.sampleRate))) else {
-      captureSlots.signal(); return
+      permit.release(); return
     }
     var supplied = false
     var error: NSError?
@@ -253,41 +301,49 @@ final class BeaconVoiceAudio {
       count("conversionErrors")
       let code = error?.code ?? 0
       DispatchQueue.main.async { beaconVoiceTrace("converter failed code=\(code)") }
-      captureSlots.signal(); DispatchQueue.main.async { [weak self] in self?.onFailure?("audio_codec_failed") }; return
+      permit.release(); failCodec(epoch: generation); return
     }
     count("convertedSamples", Int(output.frameLength))
     let frames: [Data]
     do { frames = try pcm.append(Array(UnsafeBufferPointer(start: values, count: Int(output.frameLength)))) }
     catch {
-      count("pcmFramingErrors"); captureSlots.signal()
-      DispatchQueue.main.async { [weak self] in self?.onFailure?("audio_codec_failed") }; return
+      count("pcmFramingErrors"); permit.release()
+      failCodec(epoch: generation); return
     }
     var packets: [Data] = []
     for frame in frames {
       guard let packet = codec.encodeSamples(frame) else {
         count("encodeErrors")
-        captureSlots.signal(); DispatchQueue.main.async { [weak self] in self?.onFailure?("audio_codec_failed") }; return
+        permit.release(); failCodec(epoch: generation); return
       }
       packets.append(packet)
       count("encodedFrames")
     }
     DispatchQueue.main.async { [weak self] in
+      defer { permit.release() }
       guard let self else { return }
-      if ProcessInfo.processInfo.systemUptime - capturedAt < 0.15 {
+      if self.epoch.contains(generation), ProcessInfo.processInfo.systemUptime - capturedAt < 0.15 {
         for packet in packets { self.onPacket?(packet) }
       } else { self.count("staleEncodedDrops", packets.count) }
-      self.captureSlots.signal()
+    }
+  }
+
+  private func failCodec(epoch generation: UInt64) {
+    DispatchQueue.main.async { [weak self] in
+      guard let self, self.epoch.contains(generation) else { return }
+      self.onFailure?("audio_codec_failed")
     }
   }
 
   func play(_ packet: Data) {
-    guard playbackSlots.wait(timeout: .now()) == .success else { count("playbackBackpressureDrops"); return }
+    guard let generation = epoch.current() else { return }
+    guard let permit = BeaconVoiceAudioPermit(playbackSlots) else { count("playbackBackpressureDrops"); return }
     queue.async { [weak self] in
-      guard let self else { return }
-      guard self.running, let decoded = self.codec?.decodePacket(packet), decoded.count == 1280,
+      guard let self else { permit.release(); return }
+      guard self.running, self.epoch.contains(generation), let decoded = self.codec?.decodePacket(packet), decoded.count == 1280,
         let buffer = AVAudioPCMBuffer(pcmFormat: self.format, frameCapacity: 320),
         let destination = buffer.floatChannelData?[0] else {
-        self.count("decodeOrPlaybackErrors"); self.playbackSlots.signal(); return
+        self.count("decodeOrPlaybackErrors"); permit.release(); return
       }
       buffer.frameLength = 320
       decoded.withUnsafeBytes { bytes in
@@ -296,7 +352,12 @@ final class BeaconVoiceAudio {
       self.count("decodedFrames")
       if UnsafeBufferPointer(start: destination, count: 320).contains(where: { abs($0) > 0.00001 }) { self.count("nonzeroDecodedFrames") }
       self.player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-        self?.count("playedFrames"); self?.playbackSlots.signal()
+        defer { permit.release() }
+        guard let self else { return }
+        // AVAudioPlayerNode invokes this completion on stop too. A flushed
+        // frame must release its slot without claiming audible playback.
+        if self.epoch.contains(generation) { self.count("playedFrames") }
+        else { self.count("flushedPlaybackFrames") }
       }
     }
   }
@@ -308,11 +369,13 @@ final class BeaconVoiceAudio {
   }
 
   func stop() {
+    epoch.end()
     captureWatchdog?.invalidate(); captureWatchdog = nil
     traceEngine("audio stopping")
     for observer in observers { NotificationCenter.default.removeObserver(observer) }; observers.removeAll()
     onPacket = nil; onFailure = nil
     if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
+    graphInputFormat = nil
     engine.stop()
     queue.sync { running = false; player.stop(); pcm.reset(); converter = nil; codec = nil }
     try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)

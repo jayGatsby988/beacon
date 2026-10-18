@@ -1,10 +1,55 @@
 import Foundation
+import AVFoundation
 
 // Local synthetic regression, not a microphone, radio or speaker test.
 // Uses the actual production Objective-C wrapper (VOIP + VOICE + DTX) and PCM framer.
 @main
 struct BeaconVoiceCodecPipelineTests {
+  // Render synthetic speech with the real AVAudioPlayerNode in offline mode.
+  // Two100ms radio bursts can arrive before playback advances; the old6-slot
+  // limit dropped four of these ten frames even on a healthy audio engine.
+  static func checkPlaybackBursts() throws {
+    guard let encoder = BeaconOpusCodec(), let decoder = BeaconOpusCodec() else { fatalError("Opus unavailable") }
+    let engine = AVAudioEngine()
+    let player = AVAudioPlayerNode()
+    let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
+    engine.attach(player); engine.connect(player, to: engine.mainMixerNode, format: format)
+    try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 4096)
+    try engine.start(); player.play()
+    defer { player.stop(); engine.stop() }
+    let slots = DispatchSemaphore(value: BeaconVoicePCM.playbackFrameLimit)
+    var admitted = 0
+    for frame in 0..<15 {
+      let values = (0..<320).map { Float(0.2 * sin(2 * Double.pi * 440 * Double(frame * 320 + $0) / 16000)) }
+      let pcm = values.withUnsafeBytes { Data($0) }
+      guard let packet = encoder.encodeSamples(pcm), let decoded = decoder.decodePacket(packet) else { fatalError("Codec failure") }
+      guard let permit = BeaconVoiceAudioPermit(slots) else {
+        precondition(frame >= 10, "Playback dropped speech from two adjacent100ms capture bursts")
+        continue
+      }
+      let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 320)!
+      buffer.frameLength = 320
+      decoded.withUnsafeBytes { data in
+        buffer.floatChannelData![0].update(from: data.bindMemory(to: Float.self).baseAddress!, count: 320)
+      }
+      player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { _ in permit.release() }
+      admitted += 1
+    }
+    precondition(admitted == 12, "Playback must stay bounded at240ms rather than accumulate delay")
+    let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4096)!
+    let result = try engine.renderOffline(4096, to: output)
+    precondition(result == .success)
+    let samples = UnsafeBufferPointer(start: output.floatChannelData![0], count: Int(output.frameLength))
+    let energy = samples.reduce(0.0) { $0 + Double($1 * $1) }
+    precondition(energy > 1, "Admitted speech must reach the rendered output, not only the decoder")
+    // Offline rendering has no speaker clock, so it cannot assert the live
+    // .dataPlayedBack callback timing. Check actual rendered samples here;
+    // physical playback and callback progress remain a separate device check.
+    print("Native offline playback: two 100ms bursts retained, overflow bounded at240ms, nonzero output rendered; no audio hardware accessed")
+  }
+
   static func main() throws {
+    try checkPlaybackBursts()
     guard let sender = BeaconOpusCodec(), let receiver = BeaconOpusCodec() else {
       fatalError("Production Opus wrapper initialization failed")
     }

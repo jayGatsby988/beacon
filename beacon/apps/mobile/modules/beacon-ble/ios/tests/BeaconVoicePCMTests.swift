@@ -10,6 +10,35 @@ struct BeaconVoicePCMTests {
   }
 
   static func main() throws {
+    let slots = DispatchSemaphore(value: 1)
+    var callbackPermit: BeaconVoiceAudioPermit? = BeaconVoiceAudioPermit(slots)
+    precondition(callbackPermit != nil && BeaconVoiceAudioPermit(slots) == nil)
+    callbackPermit = nil // An audio callback was discarded rather than invoked.
+    let resumed = BeaconVoiceAudioPermit(slots)
+    precondition(resumed != nil, "Discarding a callback must return its slot")
+    resumed!.release(); resumed!.release()
+    let bounded = BeaconVoiceAudioPermit(slots)
+    precondition(bounded != nil && BeaconVoiceAudioPermit(slots) == nil,
+      "Repeated completion must not create extra playback capacity")
+    bounded!.release()
+    // The permit retains the semaphore when its audio-owner disappears first.
+    var owner: DispatchSemaphore? = DispatchSemaphore(value: 1)
+    var orphanedCallback: BeaconVoiceAudioPermit? = BeaconVoiceAudioPermit(owner!)
+    owner = nil
+    precondition(orphanedCallback != nil)
+    orphanedCallback = nil // Must not hit libdispatch's outstanding-slot trap.
+    let epoch = BeaconVoiceAudioEpoch()
+    precondition(epoch.current() == nil)
+    let firstGraph = epoch.begin()
+    precondition(epoch.contains(firstGraph))
+    epoch.end()
+    precondition(!epoch.contains(firstGraph) && epoch.current() == nil,
+      "Stopped player completion must not count as played or forward queued microphone audio")
+    let replacementGraph = epoch.begin()
+    precondition(replacementGraph != firstGraph && !epoch.contains(firstGraph) && epoch.contains(replacementGraph),
+      "A rebuilt route must reject callbacks from the prior audio graph")
+    epoch.end()
+    precondition(!epoch.contains(replacementGraph))
     let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
     // These two previously discarded valid speech blocks at separate stages.
     precondition(BeaconVoicePCM.accepts(frameCount: 4800, sampleRate: 48000, channels: 1), "100ms capture must not hit the old fixed 4096-frame cutoff")
