@@ -44,7 +44,12 @@ final class BeaconVoiceSession: NSObject, StreamDelegate {
     self.crypto = try BeaconVoiceCrypto(callId: callId, key: key, initiator: initiator)
     self.emit = emit; self.onEnd = onEnd
     super.init()
-    timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in self?.tick() }
+    // Touch tracking pauses default-mode timers. Keep encrypted keepalives and
+    // stream progress running while the user scrolls or holds a call control,
+    // including when muted (and no microphone packets can keep the peer alive).
+    let heartbeat = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in self?.tick() }
+    timer = heartbeat
+    RunLoop.main.add(heartbeat, forMode: .common)
     observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in self?.finish("background", failed: false) })
     observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
       if (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue {

@@ -1,0 +1,97 @@
+{
+  "recordedAtUTC": "2026-10-18T18:13:37.418667+00:00",
+  "scope": "UW HUB map, durable messaging and iOS call heartbeat reliability",
+  "sourceHashes": {
+    "apps/mobile/src/components/NearbyMap.tsx": "70184d6d58f00733197f8017655dd689576207708e79e9d602a7fd062b993413",
+    "apps/mobile/src/services/RequestMap.tsx": "126d08ecd266f2f9307ce7912b64f8b88303aebf311460244a6563e6c4e69881",
+    "apps/mobile/src/services/BeaconService.ts": "b331e0aa0bf01c1a4d407f2190339f70611f498806b8f7a84ab7a216ab77524e",
+    "apps/mobile/src/services/SocialService.ts": "26031db79d5c1f51ec1b61b3a6b247c46233a777b7ac313a9f62d958dca5adf4",
+    "apps/mobile/modules/beacon-ble/ios/BeaconVoiceSession.swift": "aaa6aa6dde241b12ce14e329e5923ba8f1b148564dcd27e63c817db78b7a2c35"
+  },
+  "fixes": [
+    "Prioritize a current device GPS fix for map focus and Locate; keep actual reported coordinates, uncertainty and freshness.",
+    "Request High GPS accuracy with existing bounded timeout and no location prerequisite for sending SOS.",
+    "Keep bundled UW streets for HUB request details when a saved offline map covers elsewhere.",
+    "Base missing-streets warning on the visible map center, not distant offscreen reports.",
+    "Release inbound durable processing from stalled outbound presence/location/message writes; coalesce presence responses.",
+    "Rotate retry attempts so older unacknowledged packets do not indefinitely starve later messages and receipts.",
+    "Schedule native call heartbeat in common run-loop modes so touch tracking does not pause muted-call keepalives."
+  ],
+  "validation": {
+    "unitIntegration": {
+      "command": "npm test (Node 24)",
+      "tests": 226,
+      "passed": 225,
+      "failed": 0,
+      "skipped": 1,
+      "skipReason": "Timescale integration requires a configured database",
+      "sqliteAndDurableMessagingTestsExecuted": true
+    },
+    "typecheck": "passed: mobile and API",
+    "lint": "passed with zero allowed warnings",
+    "diffWhitespace": "passed",
+    "nativeVoice": {
+      "command": "python3 scripts/check-native-voice.py",
+      "result": "passed",
+      "coverage": [
+        "native diagnostic persistence",
+        "Opus encode/decode",
+        "encryption and replay rejection",
+        "partial writes and stalls",
+        "AVAudioConverter and production PCM",
+        "bounded offline playback",
+        "ObjC Opus + PCM synthetic pipeline"
+      ],
+      "limitation": "Synthetic local execution; no microphone, speaker or Bluetooth radio tested"
+    },
+    "heartbeatFoundationReproduction": {
+      "defaultModeFiringsDuringTracking": 0,
+      "commonModeFiringsDuringTracking": 10,
+      "windowMilliseconds": 100,
+      "limitation": "Foundation run-loop reproduction; not a physical-device call"
+    },
+    "hubCoverage": {
+      "officialUWLocation": [
+        47.655495,
+        -122.305148
+      ],
+      "source": "https://hub.washington.edu/about/plan-your-visit/",
+      "result": "Bundled building polygon contains HUB coordinate; no device location forced to this point"
+    },
+    "releaseBuild": {
+      "result": "succeeded",
+      "platform": "iphoneos arm64",
+      "configuration": "Release",
+      "app": {
+        "path": "/Users/darshanrengarajan/Documents/ChatGPT/unifictional Automations/beacon/tmp/DerivedData/Build/Products/Release-iphoneos/Beacon.app",
+        "bundleIdentifier": "org.beacon.community.dev",
+        "buildVersion": "1",
+        "marketingVersion": "0.1.0",
+        "codeSignature": "verified deep strict",
+        "team": [
+          "WDYQ67GJDZ"
+        ],
+        "profileExpirationUTC": "2026-10-25T05:51:22Z",
+        "provisionedDeviceCount": 3,
+        "bundleBytes": 11149161,
+        "bundleSha256": "9b47fe8ce963560933b1cfcdc01eb164aaa863c60f937e91e2e5e877e2ae0924",
+        "binarySha256": "9d187e1027bd5986623fc10d84d62b5250b861268216bc8c8441f177d960f4f5",
+        "minimumOS": "15.1",
+        "microphonePurposePresent": true,
+        "bluetoothPurposePresent": true,
+        "installed": false,
+        "embeddedBundleNewerThanChangedJavaScript": true,
+        "binaryNewerThanChangedNativeSource": true
+      }
+    }
+  },
+  "deviceValidation": {
+    "installed": false,
+    "liveMessagesVerified": false,
+    "liveCallAudioVerified": false,
+    "physicalGPSVerified": false,
+    "reason": "All three known physical iPhones were unavailable in devicectl at final check. Simulator connection does not verify Bluetooth, indoor GPS or audio hardware."
+  },
+  "logs": "tmp/hub-reliability-check/ (local, not committed)",
+  "attribution": "AI-assisted implementation and testing in Codex. Commit authors reflect user-authorized repository account attribution, not independent human implementation."
+}
